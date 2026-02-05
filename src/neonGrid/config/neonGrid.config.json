@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "ui": {
+    "palette": {
+      "bg": "#070812",
+      "panelRGBA": "rgba(14,18,38,0.72)",
+      "neonCyan": "#22F5FF",
+      "neonMagenta": "#FF2BD6",
+      "neonLime": "#B6FF2E",
+      "danger": "#FF3B3B",
+      "text": "#EAF0FF"
+    },
+    "tipsTR": [
+      "Raslantı yok: Aynı girdiler aynı sonucu üretir.",
+      "Dalga süresi sabittir; başarını Öldürme Oranı belirler.",
+      "Ceza, süreyi değil ödülü/hasarı etkiler.",
+      "Modüller seçerek açılır; drop-rate yoktur.",
+      "Kalite düşürmek mobilde düşman sayısını sınırlar.",
+      "Prestij: reset + kalıcı çarpan (deterministik)."
+    ]
+  },
+  "sim": {
+    "tickHz": 60,
+    "waveDurationSec": 30.0,
+    "timeScales": [1, 2, 4],
+    "autoOverlayCloseSec": 1.6
+  },
+  "progression": {
+    "clearFactorRho": 0.9,
+
+    "d0": 8,
+    "dmgGrowthD": 0.095,
+    "r0": 1.1,
+    "rMax": 8.0,
+    "fireRateLogK": 0.55,
+
+    "prestigeMu": 0.06,
+
+    "a": 0.042,
+    "b": 0.028,
+    "c": 0.018,
+    "earlyEnd": 50,
+    "midEnd": 200,
+
+    "nMin": 10,
+    "nMaxHigh": 90,
+    "nMaxMed": 70,
+    "nMaxLow": 50,
+    "u": 1.9,
+    "v": 2.2,
+    "spawnP": 1.6,
+
+    "enemyTypeA": 17,
+    "enemyTypeB": 29,
+    "enemyTypeC": 7,
+
+    "patternP1": 9,
+    "patternP2": 4,
+    "patternCountP": 12,
+    "burstPatternValues": [3, 7, 10],
+    "burstTightness": 0.42,
+
+    "typeVariationBeta": 0.28,
+    "typeVariationM": 9,
+    "armorMax": 0.75,
+    "armorAlpha": 0.12,
+    "speedK": 0.9,
+
+    "th0": 0.7,
+    "thSlope": 0.07,
+    "thMin": 0.7,
+    "thMax": 0.92,
+
+    "penK": 0.9,
+    "penMin": 0.4,
+
+    "g0": 0.55,
+    "gamma": 0.72,
+    "goldWaveK": 0.18,
+    "p0": 1,
+    "pointsGrowthPer10": 1.28,
+
+    "enableEscapeDamage": true,
+    "escapeDamage": 2.0,
+    "deficitBoost": 1.6,
+
+    "offlineFactor": 0.6,
+    "rewardedOfflineFactor": 1.2,
+    "offlineKillK0": 0.22,
+    "offlineKillK1": 0.75
+  },
+  "tower": {
+    "baseRange": 160,
+    "rangeGrowth": 4.0,
+    "baseHP0": 100,
+    "baseHPGrowth": 0.08,
+    "armorPierce0": 0.0
+  },
+  "economy": {
+    "upgradeCostBase": 10,
+    "upgradeCostGrowth": 1.13,
+    "moduleUnlockPointCostBase": 2,
+    "moduleUnlockPointCostGrowth": 1.22,
+    "moduleUpgradeGoldBase": 25,
+    "moduleUpgradeGoldGrowth": 1.16
+  }
+}

@@ -1,0 +1,179 @@
+import type { GameConfig, GameState } from '../types'
+import { clamp, aggregateModules } from './deterministic'
+import { moduleUnlockCostPoints, moduleUpgradeCostGold, upgradeCost } from './costs'
+
+export function applyTowerUpgrade(args: {
+  state: GameState
+  cfg: GameConfig
+  key: 'damage' | 'fireRate' | 'range' | 'baseHP'
+  amount: 1 | 10 | 'max'
+}): { ok: boolean; state: GameState } {
+  const { cfg, key } = args
+  const state: GameState = structuredClone(args.state)
+
+  const cur = getUpgradeLevel(state, key)
+  const growth = cfg.economy.upgradeCostGrowth
+
+  const buyCount = args.amount === 'max' ? maxAffordableUpgrades(cur, state.gold, cfg) : args.amount
+  if (buyCount <= 0) return { ok: false, state: args.state }
+
+  const firstCost = upgradeCost(cur, cfg)
+  // cost for next 'buyCount' levels starting at cur: geometric series from L=cur..cur+buyCount-1
+  const cost = firstCost * (1 - Math.pow(growth, buyCount)) / (1 - growth)
+  if (state.gold < cost) return { ok: false, state: args.state }
+
+  state.gold -= cost
+  setUpgradeLevel(state, key, cur + buyCount)
+
+  // BaseHP track increases max; current HP is clamped to new max.
+  const maxHP = calcBaseHPMax(state, cfg)
+  state.baseHP = clamp(state.baseHP, 0, maxHP)
+
+  return { ok: true, state }
+}
+
+function maxAffordableUpgrades(currentLevel: number, gold: number, cfg: GameConfig): number {
+  // Deterministic, bounded search.
+  let n = 0
+  let g = gold
+  let L = Math.max(1, Math.floor(currentLevel))
+
+  for (let iter = 0; iter < 10_000; iter++) {
+    const c = upgradeCost(L, cfg)
+    if (g < c) break
+    g -= c
+    L++
+    n++
+    if (n >= 10_000) break
+  }
+  return n
+}
+
+function getUpgradeLevel(state: GameState, key: 'damage' | 'fireRate' | 'range' | 'baseHP'): number {
+  switch (key) {
+    case 'damage':
+      return state.towerUpgrades.damageLevel
+    case 'fireRate':
+      return state.towerUpgrades.fireRateLevel
+    case 'range':
+      return state.towerUpgrades.rangeLevel
+    case 'baseHP':
+      return state.towerUpgrades.baseHPLevel
+  }
+}
+
+function setUpgradeLevel(state: GameState, key: 'damage' | 'fireRate' | 'range' | 'baseHP', level: number) {
+  const L = Math.max(1, Math.floor(level))
+  switch (key) {
+    case 'damage':
+      state.towerUpgrades.damageLevel = L
+      return
+    case 'fireRate':
+      state.towerUpgrades.fireRateLevel = L
+      return
+    case 'range':
+      state.towerUpgrades.rangeLevel = L
+      return
+    case 'baseHP':
+      state.towerUpgrades.baseHPLevel = L
+      return
+  }
+}
+
+export function calcBaseHPMax(state: GameState, cfg: GameConfig): number {
+  const L = Math.max(1, Math.floor(state.towerUpgrades.baseHPLevel))
+  const base = cfg.tower.baseHP0 * Math.pow(1 + cfg.tower.baseHPGrowth, L - 1)
+  const modHP = aggregateModules(state, cfg).baseHPBonus
+  return Math.max(1, base + modHP)
+}
+
+export function tryModuleUnlock(args: { state: GameState; cfg: GameConfig; id: string }): { ok: boolean; state: GameState } {
+  const { cfg, id } = args
+  const state: GameState = structuredClone(args.state)
+
+  if (!(id in state.modulesUnlocked)) return { ok: false, state: args.state }
+  if (state.modulesUnlocked[id]) return { ok: false, state: args.state }
+
+  const unlockedCount = Object.values(state.modulesUnlocked).filter(Boolean).length
+  const cost = moduleUnlockCostPoints(unlockedCount, cfg)
+  if (state.points < cost) return { ok: false, state: args.state }
+
+  state.points -= cost
+  state.modulesUnlocked[id] = true
+  return { ok: true, state }
+}
+
+export function tryModuleUpgrade(args: {
+  state: GameState
+  cfg: GameConfig
+  id: string
+  amount: 1 | 10 | 'max'
+}): { ok: boolean; state: GameState } {
+  const { cfg, id } = args
+  const state: GameState = structuredClone(args.state)
+
+  if (!(id in state.moduleLevels)) return { ok: false, state: args.state }
+  if (!state.modulesUnlocked[id]) return { ok: false, state: args.state }
+
+  const cur = Math.max(0, Math.floor(state.moduleLevels[id] ?? 0))
+
+  const buyCount = args.amount === 'max' ? maxAffordableModuleLevels(cur, state.gold, cfg) : args.amount
+  if (buyCount <= 0) return { ok: false, state: args.state }
+
+  let total = 0
+  let L = cur
+  for (let i = 0; i < buyCount; i++) {
+    total += moduleUpgradeCostGold(L, cfg)
+    L++
+  }
+  if (state.gold < total) return { ok: false, state: args.state }
+
+  state.gold -= total
+  state.moduleLevels[id] = cur + buyCount
+
+  // If HP module affects maxHP, clamp current.
+  state.baseHP = clamp(state.baseHP, 0, calcBaseHPMax(state, cfg))
+
+  return { ok: true, state }
+}
+
+function maxAffordableModuleLevels(currentLevel: number, gold: number, cfg: GameConfig): number {
+  let n = 0
+  let g = gold
+  let L = Math.max(0, Math.floor(currentLevel))
+  for (let iter = 0; iter < 10_000; iter++) {
+    const c = moduleUpgradeCostGold(L, cfg)
+    if (g < c) break
+    g -= c
+    L++
+    n++
+    if (n >= 10_000) break
+  }
+  return n
+}
+
+export function equipModule(args: {
+  state: GameState
+  cfg: GameConfig
+  slot: number
+  id: string | null
+}): { ok: boolean; state: GameState } {
+  const { cfg, slot } = args
+  const state: GameState = structuredClone(args.state)
+
+  const s = Math.max(1, Math.floor(slot))
+  if (s < 1 || s > cfg.modules.slotCount) return { ok: false, state: args.state }
+
+  if (args.id === null) {
+    state.modulesEquipped[s] = null
+    return { ok: true, state }
+  }
+
+  const id = args.id
+  if (!state.modulesUnlocked[id]) return { ok: false, state: args.state }
+
+  state.modulesEquipped[s] = id
+  // Clamp HP if needed.
+  state.baseHP = clamp(state.baseHP, 0, calcBaseHPMax(state, cfg))
+  return { ok: true, state }
+}
