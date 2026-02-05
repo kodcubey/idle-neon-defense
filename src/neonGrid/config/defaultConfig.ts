@@ -30,7 +30,7 @@ export const defaultConfig: GameConfig = {
   },
 
   progression: {
-    clearFactorRho: 0.78,
+    clearFactorRho: 0.72,
 
     d0: 8,
     dmgGrowthD: 0.095,
@@ -46,13 +46,13 @@ export const defaultConfig: GameConfig = {
     earlyEnd: 50,
     midEnd: 200,
 
-    nMin: 10,
+    nMin: 8,
     nMaxHigh: 90,
     nMaxMed: 70,
     nMaxLow: 50,
-    u: 1.9,
-    v: 2.2,
-    spawnP: 1.3,
+    u: 1.4,
+    v: 1.7,
+    spawnP: 1.25,
 
     enemyTypeA: 17,
     enemyTypeB: 29,
@@ -68,11 +68,11 @@ export const defaultConfig: GameConfig = {
     typeVariationM: 9,
     armorMax: 0.75,
     armorAlpha: 0.12,
-    speedK: 0.9,
+    speedK: 0.6,
 
-    th0: 0.62,
-    thSlope: 0.06,
-    thMin: 0.62,
+    th0: 0.56,
+    thSlope: 0.055,
+    thMin: 0.56,
     thMax: 0.92,
 
     penK: 0.9,
@@ -85,8 +85,8 @@ export const defaultConfig: GameConfig = {
     pointsGrowthPer10: 1.28,
 
     enableEscapeDamage: true,
-    escapeDamage: 2.0,
-    deficitBoost: 1.6,
+    escapeDamage: 1.4,
+    deficitBoost: 1.2,
 
     offlineFactor: 0.6,
     rewardedOfflineFactor: 1.2,
@@ -97,7 +97,7 @@ export const defaultConfig: GameConfig = {
   tower: {
     baseRange: 200,
     rangeGrowth: 4.0,
-    baseHP0: 130,
+    baseHP0: 170,
     baseHPGrowth: 0.08,
     armorPierce0: 0.0,
   },
