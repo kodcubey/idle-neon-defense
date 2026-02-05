@@ -216,14 +216,27 @@ export function calcPointsReward(wave: number, cfg: GameConfig): number {
 }
 
 export function calcPaladyumRewardForWave(state: GameState, wave: number, cfg: GameConfig): { reward: number; nextCarry: number } {
-  const base = calcPointsReward(wave, cfg)
-  const rate = typeof cfg.progression.paladyumDropRate === 'number' ? cfg.progression.paladyumDropRate : 1
-  const carry0 = typeof (state as any).paladyumCarry === 'number' ? (state as any).paladyumCarry : 0
+  // New Paladyum system:
+  // - Always reward every wave.
+  // - Logarithmic growth with wave.
+  // - Starts at 0.00001 at waveIndex=0 (i.e., wave 1 in-game).
+  // - Caps at 0.001 at/after waveIndex=100 (roughly wave 101).
+  // The shape exponent keeps early-wave gains extremely small.
 
-  const total = carry0 + base * rate
-  const reward = Math.max(0, Math.floor(total + 1e-9))
-  const nextCarry = Math.max(0, Math.min(1, total - reward))
-  return { reward, nextCarry }
+  void state
+  void cfg
+
+  const MIN = 0.00001
+  const MAX = 0.001
+  const CAP_WAVE_INDEX = 100
+  const SHAPE = 4
+
+  const waveIndex = Math.max(0, Math.floor(wave) - 1)
+  const x = Math.min(CAP_WAVE_INDEX, waveIndex)
+  const t0 = CAP_WAVE_INDEX <= 0 ? 1 : Math.log1p(x) / Math.log1p(CAP_WAVE_INDEX)
+  const t = Math.pow(Math.max(0, Math.min(1, t0)), SHAPE)
+  const reward = MIN + (MAX - MIN) * t
+  return { reward, nextCarry: 0 }
 }
 
 export function calcWaveSnapshot(state: GameState, cfg: GameConfig): WaveSnapshot {

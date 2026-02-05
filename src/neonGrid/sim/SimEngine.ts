@@ -193,6 +193,10 @@ export class SimEngine {
     this.paused = p
   }
 
+  isPaused() {
+    return this.paused
+  }
+
   startNextWave() {
     if (!this.awaitingNextWave) return
     this.awaitingNextWave = false

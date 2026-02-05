@@ -10,6 +10,7 @@ export type NeonGridGame = {
   getSnapshot: () => GameState
   setSnapshot: (s: GameState) => void
   setPaused: (p: boolean) => void
+  isPaused: () => boolean
   setTimeScale: (s: 1 | 2 | 3) => void
 
   continueNextWave: () => void
@@ -45,6 +46,8 @@ export function createGame(args: {
   let pendingSnapshot: GameState = { ...args.initialState }
   let pendingPaused: boolean | null = null
   let pendingTimeScale: 1 | 2 | 3 | null = null
+
+  let lastPaused: boolean | null = null
 
   const callbacks = {
     onWaveComplete: args.onWaveComplete,
@@ -117,6 +120,11 @@ export function createGame(args: {
     return engine ? engine.getSnapshot() : pendingSnapshot
   }
 
+  function currentPaused(): boolean {
+    if (engine) return engine.isPaused()
+    return pendingPaused ?? false
+  }
+
   function applyState(next: GameState) {
     pendingSnapshot = { ...next }
     // Quality is fixed to HIGH.
@@ -136,9 +144,20 @@ export function createGame(args: {
     getSnapshot: () => currentState(),
     setSnapshot: (s) => applyState(s),
     setPaused: (p) => {
+      const prev = currentPaused()
       pendingPaused = p
       if (engine) engine.setPaused(p)
+
+      // UI calls setPaused(true) frequently while on menu/login.
+      // Only trigger a save-worthy state notification on an actual
+      // transition into paused=true.
+      const nowPaused = p
+      if (nowPaused !== lastPaused) {
+        lastPaused = nowPaused
+        if (!prev && nowPaused) callbacks.onStateChanged(currentState())
+      }
     },
+    isPaused: () => currentPaused(),
     setTimeScale: (s) => {
       pendingTimeScale = s
       if (engine) engine.setTimeScale(s)

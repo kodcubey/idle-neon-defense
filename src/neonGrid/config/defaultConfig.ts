@@ -104,7 +104,7 @@ export const defaultConfig: GameConfig = {
   },
 
   economy: {
-    upgradeCostBase: 10,
+    upgradeCostBase: 1,
     upgradeCostGrowth: 1.13,
     moduleUnlockPointCostBase: 25,
     moduleUnlockPointCostGrowth: 1.35,

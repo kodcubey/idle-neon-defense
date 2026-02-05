@@ -111,6 +111,21 @@ body {
   backdrop-filter: blur(6px);
 }
 
+@keyframes ng-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ng-spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--stroke-strong) 85%, transparent);
+  border-top-color: var(--neon-magenta);
+  animation: ng-spin 700ms linear infinite;
+}
+
 .row {
   display: flex;
   gap: 10px;

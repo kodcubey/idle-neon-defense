@@ -1,22 +1,38 @@
 import type { GameConfig, GameState, OfflineProgressResult, RunSummary, WaveReport } from '../types'
 import type { NeonGridGame } from '../phaser/createGame'
 import type { SimPublic } from '../sim/SimEngine'
+import { applyMetaToState, type FirebaseSync } from '../persistence/firebaseSync'
+import { createNewState } from '../persistence/save'
 import { btn, clear, el, hr, kv } from './dom'
-import { formatNumber, formatPct, formatTimeMMSS } from './format'
+import { formatNumber, formatPaladyum, formatPaladyumInt, formatPct, formatTimeMMSS } from './format'
 import { calcPenaltyFactor, calcWaveSnapshot, clamp, calcDPS } from '../sim/deterministic'
 import { moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost } from '../sim/costs'
 
-export type UIScreen = 'boot' | 'menu' | 'hud' | 'modules' | 'prestige' | 'settings' | 'stats' | 'offline'
+export type UIScreen = 'boot' | 'menu' | 'login' | 'hud' | 'modules' | 'prestige' | 'settings' | 'stats' | 'offline'
 
 type UIArgs = {
   root: HTMLElement
   config: GameConfig
   initialState: UIScreen
   offlineResult: OfflineProgressResult
+  firebaseSync?: FirebaseSync
 }
 
 export function createUIStateMachine(args: UIArgs) {
   const { root, config } = args
+  const firebaseSync: FirebaseSync | null = args.firebaseSync ?? null
+
+  let registerUsername = ''
+  let registerEmail = ''
+  let registerPassword = ''
+  let registerRePassword = ''
+  let loginIdentifier = ''
+  let loginPassword = ''
+
+  let authUsername: string | null = null
+  let initialCloudSyncDone = false
+  let initialCloudSyncInProgress = false
+  let resetRequested = false
 
   // In dev/HMR or accidental re-init, multiple UI layers can stack and swallow clicks.
   // Reset the UI root so only one active layer exists.
@@ -153,6 +169,42 @@ export function createUIStateMachine(args: UIArgs) {
 
   layer.append(top, center, bottom)
 
+  // Keep Settings status in sync with auth state.
+  // IMPORTANT: this must run after `top/center/bottom` are initialized,
+  // otherwise `render()` would touch `top` in its temporal-dead-zone.
+  if (firebaseSync && !(root as any).__ngFirebaseAuthListenerInstalled) {
+    ;(root as any).__ngFirebaseAuthListenerInstalled = true
+    firebaseSync.onAuthChanged(() => {
+      const st = firebaseSync.getStatus()
+      if (!st.signedIn) {
+        authUsername = null
+        initialCloudSyncDone = false
+        initialCloudSyncInProgress = false
+
+        // On sign-out, fully reset local meta/progression so the next
+        // sign-in starts from the correct user's cloud data.
+        if (game) {
+          setFreshLocalSnapshot(true)
+        } else {
+          resetRequested = true
+        }
+      }
+      render()
+      void maybeInitialCloudSync()
+    })
+  }
+
+  function setFreshLocalSnapshot(forceMenuPause: boolean) {
+    if (!game) return
+    const fresh = createNewState(config, Date.now())
+    game.setSnapshot(fresh)
+    lastState = game.getSnapshot()
+    if (forceMenuPause) {
+      game.setPaused(true)
+      screen = 'menu'
+    }
+  }
+
   function mountModal(panel: HTMLElement): HTMLDivElement {
     // Create a per-modal full-screen overlay so it can't get "stuck" globally.
     const overlay = el('div')
@@ -164,6 +216,82 @@ export function createUIStateMachine(args: UIArgs) {
     root.appendChild(overlay)
     overlay.appendChild(panel)
     return overlay
+  }
+
+  async function withLoading<T>(task: () => Promise<T>): Promise<T> {
+    const modal = el('div', 'panel')
+    modal.style.width = 'min(420px, calc(100vw - 24px))'
+    modal.style.pointerEvents = 'auto'
+
+    const h = el('div', 'panel-header')
+    h.textContent = 'Loading'
+    const b = el('div', 'panel-body')
+
+    const row = el('div')
+    row.style.display = 'flex'
+    row.style.gap = '10px'
+    row.style.alignItems = 'center'
+
+    const spin = el('div')
+    spin.className = 'ng-spinner'
+
+    const txt = el('div', 'muted')
+    txt.textContent = 'Please wait…'
+
+    row.append(spin, txt)
+    b.appendChild(row)
+    modal.append(h, b)
+
+    const overlay = mountModal(modal)
+    try {
+      return await task()
+    } finally {
+      overlay.remove()
+    }
+  }
+
+  async function maybeInitialCloudSync(): Promise<void> {
+    if (!firebaseSync) return
+    const st = firebaseSync.getStatus()
+    if (!st.configured || !st.signedIn) return
+    if (initialCloudSyncDone || initialCloudSyncInProgress) return
+    if (!game) return
+
+    initialCloudSyncInProgress = true
+    try {
+      await withLoading(async () => {
+        // Always start from a clean local state for the signed-in user
+        // to avoid mixing previous user's meta into this session.
+        setFreshLocalSnapshot(true)
+
+        // First login in this session:
+        // - If no cloud doc exists: create it from local snapshot.
+        // - If it exists: pull from cloud and apply locally.
+        const cloudMeta = await firebaseSync.downloadMeta()
+        if (!cloudMeta) {
+          await firebaseSync.uploadMetaFromState(game!.getSnapshot())
+        } else {
+          const cur = game!.getSnapshot()
+          game!.setSnapshot(applyMetaToState(cur, cloudMeta))
+          lastState = game!.getSnapshot()
+        }
+
+        // Never auto-start gameplay due to auth/sync.
+        game!.setPaused(true)
+        screen = 'menu'
+
+        try {
+          authUsername = await firebaseSync.getUsername()
+        } catch {
+          authUsername = null
+        }
+      })
+
+      initialCloudSyncDone = true
+      render()
+    } finally {
+      initialCloudSyncInProgress = false
+    }
   }
 
   function cleanupStaleModalOverlays() {
@@ -213,11 +341,19 @@ export function createUIStateMachine(args: UIArgs) {
 
   function setScreen(next: UIScreen) {
     screen = next
+    if (game && (next === 'menu' || next === 'login' || next === 'boot' || next === 'offline')) {
+      game.setPaused(true)
+    }
     render()
   }
 
   function render() {
     cleanupStaleModalOverlays()
+
+    // Hard guarantee: home-related screens never run gameplay.
+    if (game && (screen === 'menu' || screen === 'login' || screen === 'boot' || screen === 'offline')) {
+      game.setPaused(true)
+    }
 
     clear(top)
     clear(center)
@@ -236,6 +372,11 @@ export function createUIStateMachine(args: UIArgs) {
 
     if (screen === 'menu') {
       renderMenu()
+      return
+    }
+
+    if (screen === 'login') {
+      renderLogin()
       return
     }
 
@@ -312,13 +453,31 @@ export function createUIStateMachine(args: UIArgs) {
 
     const body = el('div', 'panel-body')
 
+    const authLine = (() => {
+      const st = firebaseSync?.getStatus()
+      const line = el('div', 'muted')
+      if (!firebaseSync) return null
+      if (!st?.configured) {
+        line.textContent = 'Firebase not configured.'
+        return line
+      }
+      if (!st.signedIn) {
+        line.textContent = 'Not signed in.'
+        return line
+      }
+
+      const uname = authUsername?.trim()
+      line.textContent = `Signed in as: ${uname ? uname : st.email ?? 'user'}`
+      return line
+    })()
+
     const desc = el('div', 'muted')
     desc.textContent = 'No RNG: All outcomes are deterministic. Wave duration is fixed.'
 
     const balances = el('div', 'muted')
     balances.style.marginTop = '10px'
     const pal = lastState?.points ?? 0
-    balances.innerHTML = `Paladyum: <span class="mono">${formatNumber(pal, lastState?.settings.numberFormat ?? 'suffix')}</span>`
+    balances.innerHTML = `Paladyum: <span class="mono">${formatPaladyum(pal)}</span>`
 
     const row = el('div', 'stack')
     row.style.marginTop = '12px'
@@ -380,7 +539,216 @@ export function createUIStateMachine(args: UIArgs) {
     `
     card.append(ch, cb)
 
+    const authPanel = (() => {
+      const st = firebaseSync?.getStatus()
+      if (!firebaseSync || !st?.configured) return null
+      if (st.signedIn) return null
+
+      const authPanel = el('div', 'panel')
+      authPanel.style.marginTop = '12px'
+      const ah = el('div', 'panel-header')
+      ah.textContent = 'Register'
+      const ab = el('div', 'panel-body')
+
+      const uname = document.createElement('input')
+      uname.type = 'text'
+      uname.placeholder = 'Username…'
+      uname.value = registerUsername
+      uname.oninput = () => {
+        registerUsername = uname.value
+      }
+
+      const email = document.createElement('input')
+      email.type = 'email'
+      email.placeholder = 'Email…'
+      email.value = registerEmail
+      email.oninput = () => {
+        registerEmail = email.value
+      }
+
+      const pass = document.createElement('input')
+      pass.type = 'password'
+      pass.placeholder = 'Password…'
+      pass.value = registerPassword
+      pass.oninput = () => {
+        registerPassword = pass.value
+      }
+
+      const repass = document.createElement('input')
+      repass.type = 'password'
+      repass.placeholder = 'Re-enter password…'
+      repass.value = registerRePassword
+      repass.oninput = () => {
+        registerRePassword = repass.value
+      }
+
+      const formRow1 = el('div', 'stack')
+      formRow1.append(uname, email)
+      const formRow2 = el('div', 'stack')
+      formRow2.style.marginTop = '8px'
+      formRow2.append(pass, repass)
+
+      const actions = el('div', 'stack')
+      actions.style.marginTop = '10px'
+      const registerBtn = btn('Register', 'btn btn-primary')
+      registerBtn.onclick = async () => {
+        try {
+          if (registerPassword !== registerRePassword) {
+            alert('Passwords do not match.')
+            return
+          }
+          await withLoading(async () => {
+            game?.setPaused(true)
+            await firebaseSync?.signUpUsernameEmailPassword(registerUsername, registerEmail, registerPassword)
+            await maybeInitialCloudSync()
+          })
+          alert('Registered.')
+          registerPassword = ''
+          registerRePassword = ''
+          render()
+        } catch (e) {
+          alert(String((e as any)?.message ?? e))
+        }
+      }
+
+      const goLogin = btn('Go to Login', 'btn')
+      goLogin.onclick = () => setScreen('login')
+
+      actions.append(registerBtn, goLogin)
+
+      ab.append(formRow1, formRow2, actions)
+      authPanel.append(ah, ab)
+      return authPanel
+    })()
+
+    const signedInPanel = (() => {
+      const st = firebaseSync?.getStatus()
+      if (!firebaseSync || !st?.configured) return null
+      if (!st.signedIn) return null
+
+      const p = el('div', 'panel')
+      p.style.marginTop = '12px'
+      const ph = el('div', 'panel-header')
+      ph.textContent = 'Account'
+      const pb = el('div', 'panel-body')
+
+      const uname = authUsername?.trim()
+      const l = el('div', 'muted')
+      l.textContent = `Username: ${uname ? uname : '—'}`
+
+      const actions = el('div', 'stack')
+      actions.style.marginTop = '10px'
+      const signOut = btn('Sign out', 'btn btn-danger')
+      signOut.onclick = async () => {
+        try {
+          await withLoading(async () => {
+            await firebaseSync.signOut()
+          })
+          setFreshLocalSnapshot(true)
+          alert('Signed out.')
+          render()
+        } catch (e) {
+          alert(String((e as any)?.message ?? e))
+        }
+      }
+      actions.append(signOut)
+
+      pb.append(l, actions)
+      p.append(ph, pb)
+      return p
+    })()
+
+    if (authLine) {
+      authLine.style.marginTop = '10px'
+      body.appendChild(authLine)
+    }
+
     body.append(desc, balances, row, card)
+    if (authPanel) body.appendChild(authPanel)
+    if (signedInPanel) body.appendChild(signedInPanel)
+    panel.append(header, body)
+    center.appendChild(panel)
+  }
+
+  function renderLogin() {
+    const panel = el('div', 'panel')
+    panel.style.maxWidth = '560px'
+    panel.style.margin = 'auto'
+    panel.style.pointerEvents = 'auto'
+
+    const header = el('div', 'panel-header')
+    header.appendChild(el('div')).textContent = 'Login'
+
+    const back = btn('Back', 'btn')
+    back.onclick = () => setScreen('menu')
+    header.appendChild(back)
+
+    const body = el('div', 'panel-body')
+
+    const st = firebaseSync?.getStatus()
+    const statusLine = el('div', 'muted')
+    if (!firebaseSync) {
+      statusLine.textContent = 'Account sync unavailable.'
+    } else if (!st?.configured) {
+      statusLine.textContent = 'Firebase not configured. Add VITE_FIREBASE_* env vars and reload.'
+    } else {
+      statusLine.textContent = `Status: ${st.signedIn ? `Signed in as ${st.email ?? 'user'}` : 'Signed out'}`
+    }
+
+    if (st?.signedIn) {
+      const note = el('div', 'muted')
+      note.style.marginTop = '8px'
+      const uname = authUsername?.trim()
+      note.textContent = `Already signed in${uname ? ` as ${uname}` : ''}.`
+      body.append(statusLine, note)
+      panel.append(header, body)
+      center.appendChild(panel)
+      return
+    }
+
+    const id = document.createElement('input')
+    id.type = 'text'
+    id.placeholder = 'Username or email…'
+    id.value = loginIdentifier
+    id.oninput = () => {
+      loginIdentifier = id.value
+    }
+
+    const pass = document.createElement('input')
+    pass.type = 'password'
+    pass.placeholder = 'Password…'
+    pass.value = loginPassword
+    pass.oninput = () => {
+      loginPassword = pass.value
+    }
+
+    const row1 = el('div', 'stack')
+    row1.append(id, pass)
+
+    const actions = el('div', 'stack')
+    actions.style.marginTop = '10px'
+    const signIn = btn('Sign in', 'btn btn-primary')
+    signIn.onclick = async () => {
+      try {
+        await withLoading(async () => {
+          game?.setPaused(true)
+          await firebaseSync?.signInUsernameOrEmail(loginIdentifier, loginPassword)
+          await maybeInitialCloudSync()
+        })
+        alert('Signed in.')
+        setScreen('menu')
+      } catch (e) {
+        alert(String((e as any)?.message ?? e))
+      }
+    }
+
+    actions.append(signIn)
+
+    const note = el('div', 'muted')
+    note.style.marginTop = '8px'
+    note.textContent = 'Use your username or email.'
+
+    body.append(statusLine, row1, actions, note)
     panel.append(header, body)
     center.appendChild(panel)
   }
@@ -599,7 +967,7 @@ export function createUIStateMachine(args: UIArgs) {
 
     const bal = el('div', 'muted')
     bal.style.marginBottom = '8px'
-    bal.innerHTML = `Paladyum: <span class="mono">${formatNumber(lastState.points, lastState.settings.numberFormat)}</span>`
+    bal.innerHTML = `Paladyum: <span class="mono">${formatPaladyum(lastState.points)}</span>`
 
     // Filter row
     const filterRow = el('div', 'stack')
@@ -651,7 +1019,7 @@ export function createUIStateMachine(args: UIArgs) {
       const isUnlocked = !!lastState.modulesUnlocked[def.id]
       if (!isUnlocked) {
         const cost = moduleUnlockCostPoints(unlockedCount, config)
-        const b = btn(`Unlock (${cost} Paladyum)`, 'btn btn-primary')
+        const b = btn(`Unlock (${formatPaladyumInt(cost)} Paladyum)`, 'btn btn-primary')
         b.onclick = () => {
           if (!game) return
           const ok = game.unlockModule(def.id)
@@ -667,7 +1035,7 @@ export function createUIStateMachine(args: UIArgs) {
         const level = lastState.moduleLevels[def.id] ?? 0
         const cost = moduleUpgradeCostPoints(level, config)
 
-        const b1 = btn(`+1 (${formatNumber(cost, lastState.settings.numberFormat)} Paladyum)`, 'btn')
+        const b1 = btn(`+1 (${formatPaladyumInt(cost)} Paladyum)`, 'btn')
         b1.onclick = () => {
           if (!game) return
           const ok = game.upgradeModule(def.id, 1)
@@ -869,64 +1237,7 @@ export function createUIStateMachine(args: UIArgs) {
 
     nf.appendChild(nfRow)
 
-    const reduce = el('div')
-    reduce.style.marginTop = '12px'
-    const chk = document.createElement('input')
-    chk.type = 'checkbox'
-    chk.checked = lastState.settings.reduceEffects
-    chk.onchange = () => {
-      lastState!.settings.reduceEffects = chk.checked
-      game!.setSnapshot({ ...lastState! })
-    }
-    const lbl = el('label', 'muted')
-    lbl.style.display = 'flex'
-    lbl.style.gap = '10px'
-    lbl.style.alignItems = 'center'
-    lbl.append(chk, document.createTextNode('Reduce effects (motion/glow)'))
-    reduce.appendChild(lbl)
-
-    const savePanel = el('div', 'panel')
-    savePanel.style.marginTop = '12px'
-    const sh = el('div', 'panel-header')
-    sh.textContent = 'Save Export/Import'
-    const sb = el('div', 'panel-body')
-
-    const ta = document.createElement('textarea')
-    ta.className = 'mono'
-    ta.style.width = '100%'
-    ta.style.minHeight = '120px'
-    ta.placeholder = 'Save text…'
-
-    const exportBtn = btn('Export', 'btn')
-    exportBtn.onclick = async () => {
-      ta.value = JSON.stringify(game!.getSnapshot())
-      try {
-        await navigator.clipboard.writeText(ta.value)
-        alert('Copied.')
-      } catch {
-        // Clipboard may be unavailable; textarea still contains the save.
-      }
-    }
-
-    const importBtn = btn('Import (Replace)', 'btn btn-danger')
-    importBtn.onclick = () => {
-      try {
-        const parsed = JSON.parse(ta.value)
-        game!.setSnapshot(parsed)
-        lastState = game!.getSnapshot()
-        alert('Loaded.')
-        render()
-      } catch {
-        alert('Invalid text.')
-      }
-    }
-
-    const saveButtons = el('div', 'stack')
-    saveButtons.append(exportBtn, importBtn)
-    sb.append(ta, saveButtons)
-    savePanel.append(sh, sb)
-
-    body.append(audio, nf, reduce, savePanel)
+    body.append(audio, nf)
     panel.append(header, body)
     center.appendChild(panel)
   }
@@ -1026,7 +1337,7 @@ export function createUIStateMachine(args: UIArgs) {
     b.innerHTML = `
       <div class="muted">Killed: <span class="mono">${report.killed}</span> • Escaped: <span class="mono">${report.escaped}</span></div>
       <div class="muted">KR: <span class="mono">${report.killRatio.toFixed(2)}</span> • Target: <span class="mono">${report.threshold.toFixed(2)}</span></div>
-      <div class="muted">Reward: <span class="mono">${formatNumber(report.rewardGold, lastState?.settings.numberFormat ?? 'suffix')}</span> gold • <span class="mono">${report.rewardPoints}</span> Paladyum</div>
+      <div class="muted">Reward: <span class="mono">${formatNumber(report.rewardGold, lastState?.settings.numberFormat ?? 'suffix')}</span> gold • <span class="mono">${formatPaladyum(report.rewardPoints)}</span> Paladyum</div>
       <div class="muted" style="margin-top:6px; color:${warn ? 'var(--danger)' : 'var(--neon-lime)'}">Penalty Multiplier: <span class="mono">x${report.penaltyFactor.toFixed(2)}</span></div>
     `
 
@@ -1071,15 +1382,37 @@ export function createUIStateMachine(args: UIArgs) {
     const overlay = mountModal(modal)
 
     const collect = btn('Collect', 'btn btn-primary')
-    collect.onclick = () => {
-      if (!game) return
-      game.setSnapshot(result.stateAfter)
-      game.setPaused(false)
-      overlay.remove()
-      setScreen('menu')
-    }
-
     const ad = btn('Watch Ad for 2x (deterministic multiplier)', 'btn')
+
+    collect.onclick = async () => {
+      const g = game
+      if (!g) return
+      collect.disabled = true
+      ad.disabled = true
+      try {
+        await withLoading(async () => {
+          g.setSnapshot(result.stateAfter)
+          lastState = g.getSnapshot()
+
+          // Offline collection should never start gameplay automatically.
+          g.setPaused(true)
+
+          // If signed in, upload meta so offline Paladyum is synced.
+          const st = firebaseSync?.getStatus()
+          if (firebaseSync && st?.configured && st.signedIn) {
+            await firebaseSync.uploadMetaFromState(g.getSnapshot())
+          }
+        })
+
+        overlay.remove()
+        setScreen('menu')
+      } catch (e) {
+        alert(String((e as any)?.message ?? e))
+      } finally {
+        collect.disabled = false
+        ad.disabled = false
+      }
+    }
     ad.onclick = () => {
       alert('No ads in this prototype; the multiplier is for demo purposes. We can add a real ad integration later.')
     }
@@ -1155,7 +1488,15 @@ export function createUIStateMachine(args: UIArgs) {
     // Initial render once state is available.
     lastState = g.getSnapshot()
     lastSim = null
+
+    if (resetRequested) {
+      resetRequested = false
+      setFreshLocalSnapshot(true)
+    }
     render()
+
+    // If a user is already signed in (persisted auth), perform one-time cloud sync.
+    void maybeInitialCloudSync()
 
     // Boot into menu if needed.
     if (screen === 'boot') render()

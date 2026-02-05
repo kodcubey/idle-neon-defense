@@ -38,6 +38,29 @@ export function formatNumber(v: number, mode: NumberFormat): string {
   return `${sign}${scaled.toFixed(scaled < 10 ? 2 : 1)}${suf}`
 }
 
+export function formatPaladyum(v: number): string {
+  if (!Number.isFinite(v)) return '∞'
+  const sign = v < 0 ? '-' : ''
+  const x = Math.abs(v)
+  // Always show up to 7 decimal places for Paladyum (e.g. 0.0000123)
+  return `${sign}${x.toFixed(7)}`
+}
+
+export function formatPaladyumInt(v: number): string {
+  if (!Number.isFinite(v)) return '∞'
+  if (v === 0) return '0'
+  // Truncate toward zero (deterministic + avoids showing more than owned).
+  const n = v < 0 ? Math.ceil(v - 1e-9) : Math.floor(v + 1e-9)
+  return String(n)
+}
+
+export function formatPaladyumInt2(v: number): string {
+  const s = formatPaladyumInt(v)
+  if (s === '∞') return s
+  if (s.startsWith('-')) return '-' + s.slice(1).padStart(2, '0')
+  return s.padStart(2, '0')
+}
+
 export function formatTimeMMSS(sec: number): string {
   const s = Math.max(0, sec)
   const m = Math.floor(s / 60)

@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Per-user save snapshot
+    match /saves/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid;
+      allow delete: if false;
+      allow list: if false;
+    }
+
+    // Public username -> email/uid mapping to support username login (client-only).
+    // To reduce enumeration, allow only GET (no list/query).
+    match /usernames/{username} {
+      allow get: if true;
+      allow list: if false;
+
+      // Username is claimed once; no updates.
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // User profile (private to the user)
+    match /users/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn() && request.auth.uid == uid;
+      allow delete: if false;
+      allow list: if false;
+    }
+
+    // Default: deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
