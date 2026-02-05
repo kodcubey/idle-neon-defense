@@ -10,8 +10,7 @@ export type NeonGridGame = {
   getSnapshot: () => GameState
   setSnapshot: (s: GameState) => void
   setPaused: (p: boolean) => void
-  setTimeScale: (s: 1 | 2 | 4) => void
-  toggleAuto: () => void
+  setTimeScale: (s: 1 | 2 | 3) => void
 
   newRun: () => void
 
@@ -43,8 +42,7 @@ export function createGame(args: {
   // and apply them once the engine is ready.
   let pendingSnapshot: GameState = { ...args.initialState }
   let pendingPaused: boolean | null = null
-  let pendingTimeScale: 1 | 2 | 4 | null = null
-  let pendingToggleAutoCount = 0
+  let pendingTimeScale: 1 | 2 | 3 | null = null
 
   const callbacks = {
     onWaveComplete: args.onWaveComplete,
@@ -100,10 +98,6 @@ export function createGame(args: {
 
       if (pendingPaused !== null) e.setPaused(pendingPaused)
       if (pendingTimeScale !== null) e.setTimeScale(pendingTimeScale)
-      while (pendingToggleAutoCount > 0) {
-        e.toggleAuto()
-        pendingToggleAutoCount--
-      }
     },
     onSimPublic: (pub: SimPublic) => {
       if (simListener) simListener(pub)
@@ -144,10 +138,6 @@ export function createGame(args: {
     setTimeScale: (s) => {
       pendingTimeScale = s
       if (engine) engine.setTimeScale(s)
-    },
-    toggleAuto: () => {
-      if (engine) engine.toggleAuto()
-      else pendingToggleAutoCount++
     },
 
     newRun: () => {

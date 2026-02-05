@@ -23,11 +23,14 @@ export function createUIStateMachine(args: UIArgs) {
   clear(root)
 
   // Some runtimes end up not dispatching native 'click' for pointer interactions.
-  // Bridge pointerdown -> onclick for our UI buttons, and suppress the follow-up click
-  // to avoid double-firing when native click *does* occur.
+  // Bridge pointer interactions -> onclick for our UI buttons, and suppress the follow-up
+  // native click to avoid double-firing when native click *does* occur.
+  // IMPORTANT: Do not fire on pointerdown; it breaks scrolling on touch devices.
   if (!(root as any).__ngBtnBridgeInstalled) {
     ;(root as any).__ngBtnBridgeInstalled = true
     const lastSyntheticAt = new WeakMap<HTMLButtonElement, number>()
+    const activePointer = new Map<number, { button: HTMLButtonElement; x: number; y: number; moved: boolean }>()
+    const MOVE_PX = 8
 
     root.addEventListener(
       'pointerdown',
@@ -40,15 +43,52 @@ export function createUIStateMachine(args: UIArgs) {
         const button = target?.closest?.('button[data-ng-btn="1"]') as HTMLButtonElement | null
         if (!button || button.disabled) return
 
-        lastSyntheticAt.set(button, performance.now())
-        // Prevent focus/selection quirks and help avoid an additional native click.
-        pe.preventDefault()
-
-        const handler = button.onclick
-        if (handler) {
-          handler.call(button, new MouseEvent('click', { bubbles: true, cancelable: true, view: window }) as any)
-        }
+        // Track pointer so we can synthesize a click on pointerup
+        // only if the gesture didn't turn into a scroll.
+        activePointer.set(pe.pointerId, { button, x: pe.clientX, y: pe.clientY, moved: false })
       },
+      true,
+    )
+
+    root.addEventListener(
+      'pointermove',
+      (e) => {
+        const pe = e as PointerEvent
+        const rec = activePointer.get(pe.pointerId)
+        if (!rec) return
+        const dx = pe.clientX - rec.x
+        const dy = pe.clientY - rec.y
+        if (Math.hypot(dx, dy) >= MOVE_PX) rec.moved = true
+      },
+      true,
+    )
+
+    const endPointer = (pe: PointerEvent, cancelled: boolean) => {
+      const rec = activePointer.get(pe.pointerId)
+      if (!rec) return
+      activePointer.delete(pe.pointerId)
+      if (cancelled) return
+      if (rec.moved) return
+
+      // Prevent focus/selection quirks and help avoid an additional native click.
+      pe.preventDefault()
+
+      lastSyntheticAt.set(rec.button, performance.now())
+      const handler = rec.button.onclick
+      if (handler) {
+        handler.call(rec.button, new MouseEvent('click', { bubbles: true, cancelable: true, view: window }) as any)
+      }
+    }
+
+    root.addEventListener(
+      'pointerup',
+      (e) => endPointer(e as PointerEvent, false),
+      true,
+    )
+
+    root.addEventListener(
+      'pointercancel',
+      (e) => endPointer(e as PointerEvent, true),
       true,
     )
 
@@ -102,14 +142,13 @@ export function createUIStateMachine(args: UIArgs) {
   let lastSim: SimPublic | null = null
 
   let modulesFilter: 'ALL' | 'OFFENSE' | 'DEFENSE' | 'UTILITY' = 'ALL'
+  let modulesPage = 0
+  const MODULES_PER_PAGE = 6
 
   let screen: UIScreen = args.initialState
 
   const top = el('div', 'hud-top')
-  const center = el('div')
-  center.style.flex = '1'
-  center.style.minHeight = '0'
-  center.style.overflow = 'auto'
+  const center = el('div', 'ui-center')
   const bottom = el('div')
 
   layer.append(top, center, bottom)
@@ -152,9 +191,8 @@ export function createUIStateMachine(args: UIArgs) {
       killed: 0,
       escaped: 0,
       spawnedSoFar: 0,
-      timeScale: 1,
+      timeScale: 2,
       paused: true,
-      auto: true,
       enemies: [],
       projectiles: [],
       arena: {
@@ -227,7 +265,7 @@ export function createUIStateMachine(args: UIArgs) {
 
     const body = el('div', 'panel-body')
     const p = el('div')
-    p.textContent = 'Deterministik simülasyon başlatılıyor…'
+    p.textContent = 'Starting deterministic simulation…'
     p.style.marginBottom = '10px'
 
     const bar = el('div', 'bar')
@@ -240,7 +278,7 @@ export function createUIStateMachine(args: UIArgs) {
 
     const tips = config.ui.tipsTR
     const dayIndex = Math.floor(Date.now() / 86400_000)
-    tip.textContent = `İpucu: ${tips[dayIndex % tips.length]}`
+    tip.textContent = `Tip: ${tips[dayIndex % tips.length]}`
 
     body.append(p, bar, tip)
     panel.append(header, body)
@@ -275,26 +313,26 @@ export function createUIStateMachine(args: UIArgs) {
     const body = el('div', 'panel-body')
 
     const desc = el('div', 'muted')
-    desc.textContent = 'Raslantı yok: Tüm sonuçlar deterministiktir. Dalga süresi sabittir.'
+    desc.textContent = 'No RNG: All outcomes are deterministic. Wave duration is fixed.'
 
     const row = el('div', 'stack')
     row.style.marginTop = '12px'
 
-    const cont = btn('Devam Et', 'btn btn-primary')
+    const cont = btn('Continue', 'btn btn-primary')
     cont.onclick = () => {
       if (!game) return
       game.setPaused(false)
       setScreen('hud')
     }
 
-    const newRun = btn('Yeni Koşu', 'btn')
+    const newRun = btn('New Run', 'btn')
     newRun.onclick = () => {
       if (!game) return
       game.newRun()
       setScreen('hud')
     }
 
-    const settings = btn('Ayarlar', 'btn')
+    const settings = btn('Settings', 'btn')
     settings.onclick = () => setScreen('settings')
 
     const credits = btn('Credits', 'btn')
@@ -310,9 +348,9 @@ export function createUIStateMachine(args: UIArgs) {
     ch.textContent = 'No RNG Mode'
     const cb = el('div', 'panel-body')
     cb.innerHTML = `
-      <div class="muted">• Spawn düzeni, enemy tipi, ödül ve ceza: deterministik formüllerle.</div>
-      <div class="muted">• Kill Ratio hedefi tutmazsa: ödül çarpanı düşer, kaçanlar base’e ekstra hasar verir.</div>
-      <div class="muted">• Her dalga tam ${config.sim.waveDurationSec.toFixed(1)}s sürer.</div>
+      <div class="muted">• Spawn order, enemy types, rewards and penalties are computed via deterministic formulas.</div>
+      <div class="muted">• If you miss the Kill Ratio target: reward multiplier drops, and escapes deal extra damage to the base.</div>
+      <div class="muted">• Each wave lasts exactly ${config.sim.waveDurationSec.toFixed(1)}s.</div>
     `
     card.append(ch, cb)
 
@@ -332,10 +370,10 @@ export function createUIStateMachine(args: UIArgs) {
     const timeLeft = Math.max(0, config.sim.waveDurationSec - sim.waveTimeSec)
 
     bar.append(
-      kv('Dalga', String(state.wave), true),
-      kv('Süre', formatTimeMMSS(timeLeft), true),
-      kv('Altın', formatNumber(state.gold, state.settings.numberFormat), true),
-      kv('Puan', formatNumber(state.points, state.settings.numberFormat), true),
+      kv('Wave', String(state.wave), true),
+      kv('Time', formatTimeMMSS(timeLeft), true),
+      kv('Gold', formatNumber(state.gold, state.settings.numberFormat), true),
+      kv('Points', formatNumber(state.points, state.settings.numberFormat), true),
       kv('DPS (snap)', formatNumber(sim.wave.dpsSnap, state.settings.numberFormat), true),
       kv('HP', `${formatNumber(state.baseHP, 'suffix')}`, true),
     )
@@ -347,17 +385,13 @@ export function createUIStateMachine(args: UIArgs) {
     const th = sim.wave.threshold
     const { penaltyFactor } = calcPenaltyFactor(kr, th, config)
 
-    const line = el('div')
-    line.style.display = 'flex'
-    line.style.alignItems = 'center'
-    line.style.justifyContent = 'space-between'
-    line.style.gap = '10px'
+    const line = el('div', 'hud-kpi')
 
-    const left = el('div')
-    left.innerHTML = `<div class="muted">Öldürme Oranı</div><div class="mono" style="font-weight:800">${kr.toFixed(2)} / Hedef ${th.toFixed(2)}</div>`
+    const left = el('div', 'hud-kpi-block')
+    left.innerHTML = `<div class="muted hud-kpi-label">Kill Ratio</div><div class="mono hud-kpi-value">${kr.toFixed(2)} <span class="muted">/ Target ${th.toFixed(2)}</span></div>`
 
-    const right = el('div')
-    right.innerHTML = `<div class="muted">Ceza Çarpanı</div><div class="mono" style="font-weight:800; color:${penaltyFactor < 1 ? 'var(--danger)' : 'var(--neon-lime)'}">x${penaltyFactor.toFixed(2)}</div>`
+    const right = el('div', 'hud-kpi-block hud-kpi-right')
+    right.innerHTML = `<div class="muted hud-kpi-label">Penalty Multiplier</div><div class="mono hud-kpi-value" style="color:${penaltyFactor < 1 ? 'var(--danger)' : 'var(--neon-lime)'}">x${penaltyFactor.toFixed(2)}</div>`
 
     line.append(left, right)
 
@@ -377,40 +411,43 @@ export function createUIStateMachine(args: UIArgs) {
     const leftStack = el('div', 'stack')
     const speed1 = btn('1x', 'btn')
     const speed2 = btn('2x', 'btn')
-    const speed4 = btn('4x', 'btn')
-    ;[speed1, speed2, speed4].forEach((b) => (b.style.minWidth = '58px'))
+    const speed3 = btn('3x', 'btn')
+    ;[speed1, speed2, speed3].forEach((b) => (b.style.minWidth = '42px'))
+
+    const markSpeed = (button: HTMLButtonElement, active: boolean) => {
+      button.classList.toggle('is-selected', active)
+      button.setAttribute('aria-pressed', active ? 'true' : 'false')
+    }
+    markSpeed(speed1, sim.timeScale === 1)
+    markSpeed(speed2, sim.timeScale === 2)
+    markSpeed(speed3, sim.timeScale === 3)
+
     speed1.onclick = () => game?.setTimeScale(1)
     speed2.onclick = () => game?.setTimeScale(2)
-    speed4.onclick = () => game?.setTimeScale(4)
+    speed3.onclick = () => game?.setTimeScale(3)
 
-    const auto = btn(sim.auto ? 'Auto: AÇIK' : 'Auto: KAPALI', 'btn')
-    auto.onclick = () => {
-      game?.toggleAuto()
-      render()
-    }
-
-    const pause = btn(sim.paused ? 'Devam' : 'Duraklat', 'btn')
+    const pause = btn(sim.paused ? 'Resume' : 'Pause', 'btn')
     pause.onclick = () => {
       game?.setPaused(!sim.paused)
       render()
     }
 
-    leftStack.append(speed1, speed2, speed4, auto, pause)
+    leftStack.append(speed1, speed2, speed3, pause)
 
     const rightStack = el('div', 'stack')
-    const upgrades = btn('Yükseltmeler', 'btn')
-    upgrades.onclick = () => setScreen('hud')
+    const upgrades = btn('Upgrades', 'btn')
+    upgrades.onclick = () => showUpgradesModal()
 
-    const modules = btn('Modüller', 'btn')
+    const modules = btn('Modules', 'btn')
     modules.onclick = () => setScreen('modules')
 
-    const stats = btn('İstatistikler', 'btn')
+    const stats = btn('Stats', 'btn')
     stats.onclick = () => setScreen('stats')
 
-    const prestige = btn('Prestij', 'btn')
+    const prestige = btn('Prestige', 'btn')
     prestige.onclick = () => setScreen('prestige')
 
-    const settings = btn('Ayarlar', 'btn')
+    const settings = btn('Settings', 'btn')
     settings.onclick = () => setScreen('settings')
 
     rightStack.append(upgrades, modules, stats, prestige, settings)
@@ -419,58 +456,45 @@ export function createUIStateMachine(args: UIArgs) {
     bottomPanel.appendChild(bb)
     bottom.appendChild(bottomPanel)
 
-    // Side overlay content (Upgrades quick panel)
+    // Inline Upgrades + Live Report (compact row)
     if (!overlayActive) {
-      const panels = el('div', 'row')
-      panels.style.pointerEvents = 'auto'
-      panels.style.alignItems = 'stretch'
+      const panels = el('div', 'hud-inline-row')
 
-      const left = el('div', 'panel')
-      left.style.width = '320px'
-      left.style.pointerEvents = 'auto'
+      // --- Upgrades + Live mini-panel ---
+      const upg = el('div', 'panel hud-inline-panel')
+      const uh = el('div', 'panel-header')
+      uh.textContent = 'Upgrades'
+      const ub = el('div', 'panel-body')
+      ub.appendChild(renderUpgradeRow('Damage', 'damage', state.towerUpgrades.damageLevel))
+      ub.appendChild(renderUpgradeRow('Fire Rate', 'fireRate', state.towerUpgrades.fireRateLevel))
+      ub.appendChild(renderUpgradeRow('Range', 'range', state.towerUpgrades.rangeLevel))
+      ub.appendChild(renderUpgradeRow('Base HP', 'baseHP', state.towerUpgrades.baseHPLevel))
 
-      const lh = el('div', 'panel-header')
-      lh.textContent = 'Yükseltmeler'
-      const lb = el('div', 'panel-body')
-
-      lb.appendChild(renderUpgradeRow('Hasar', 'damage', state.towerUpgrades.damageLevel))
-      lb.appendChild(renderUpgradeRow('Atış Hızı', 'fireRate', state.towerUpgrades.fireRateLevel))
-      lb.appendChild(renderUpgradeRow('Menzil', 'range', state.towerUpgrades.rangeLevel))
-      lb.appendChild(renderUpgradeRow('Base HP', 'baseHP', state.towerUpgrades.baseHPLevel))
-
-      left.append(lh, lb)
-
-      const right = el('div', 'panel')
-      right.style.width = '320px'
-      right.style.pointerEvents = 'auto'
-
-      const rh = el('div', 'panel-header')
-      rh.textContent = 'Canlı Rapor'
-      const rb = el('div', 'panel-body')
+      const liveTitle = el('div')
+      liveTitle.textContent = 'Live'
+      liveTitle.style.fontWeight = '800'
+      liveTitle.style.marginTop = '4px'
 
       const live = el('div', 'muted')
+      live.style.fontSize = '12px'
       live.innerHTML = `
         <div>Spawn: <span class="mono">${sim.spawnedSoFar}/${sim.wave.spawnCount}</span></div>
-        <div>Öldürülen: <span class="mono">${sim.killed}</span></div>
-        <div>Kaçan: <span class="mono">${sim.escaped}</span></div>
-        <div>Beklenen Ceza: <span class="mono">x${penaltyFactor.toFixed(2)}</span></div>
+        <div>Killed: <span class="mono">${sim.killed}</span> · Escaped: <span class="mono">${sim.escaped}</span></div>
       `
 
       const dpsNow = calcDPS(state, config)
       const statsBox = el('div', 'muted')
-      statsBox.style.marginTop = '10px'
+      statsBox.style.fontSize = '12px'
+      statsBox.style.marginTop = '6px'
       statsBox.innerHTML = `
-        <div>Build DPS (anlık): <span class="mono">${formatNumber(dpsNow, state.settings.numberFormat)}</span></div>
-        <div>Zırh Delme: <span class="mono">${formatPct(sim.tower.armorPierce)}</span></div>
+        <div>Build DPS: <span class="mono">${formatNumber(dpsNow, state.settings.numberFormat)}</span></div>
+        <div>Armor Pierce: <span class="mono">${formatPct(sim.tower.armorPierce)}</span></div>
       `
 
-      rb.append(live, hr(), statsBox)
-      right.append(rh, rb)
+      ub.append(hr(), liveTitle, live, statsBox)
+      upg.append(uh, ub)
 
-      const spacer = el('div')
-      spacer.style.flex = '1'
-      spacer.style.pointerEvents = 'none'
-      panels.append(left, spacer, right)
+      panels.append(upg)
       center.appendChild(panels)
     }
   }
@@ -484,7 +508,8 @@ export function createUIStateMachine(args: UIArgs) {
     box.style.marginBottom = '10px'
 
     const left = el('div')
-    left.innerHTML = `<div style="font-weight:800">${label}</div><div class="muted mono">Lv ${level} • Sonraki: ${formatNumber(upgradeCost(level, config), lastState?.settings.numberFormat ?? 'suffix')}</div>`
+    const nextCost = formatNumber(upgradeCost(level, config), lastState?.settings.numberFormat ?? 'suffix')
+    left.innerHTML = `<div style="font-weight:800">${label}</div><div class="muted mono">Lv ${level} • Next:</div><div class="mono" style="font-weight:800">${nextCost}</div>`
 
     const controls = el('div', 'stack')
     const b1 = btn('+1', 'btn')
@@ -543,48 +568,45 @@ export function createUIStateMachine(args: UIArgs) {
     panel.style.maxWidth = '920px'
     panel.style.margin = '0 auto'
     panel.style.pointerEvents = 'auto'
-    // Fill available center space so the body can actually scroll.
-    panel.style.height = '100%'
-    panel.style.maxHeight = '100%'
-    panel.style.display = 'flex'
-    panel.style.flexDirection = 'column'
 
     const header = el('div', 'panel-header')
-    header.appendChild(el('div')).textContent = 'Modüller'
+    header.appendChild(el('div')).textContent = 'Modules'
 
-    const back = btn('Geri', 'btn')
+    const back = btn('Back', 'btn')
     back.onclick = () => setScreen('hud')
     header.appendChild(back)
 
     const body = el('div', 'panel-body')
-    body.style.flex = '1'
-    body.style.minHeight = '0'
-    body.style.overflow = 'auto'
 
+    // Filter row
     const filterRow = el('div', 'stack')
-
     const mkFilter = (label: string, f: typeof modulesFilter) => {
       const b = btn(label, 'btn')
+      if (modulesFilter === f) b.classList.add('is-selected')
       b.onclick = () => {
         modulesFilter = f
+        modulesPage = 0
         render()
       }
       return b
     }
+    filterRow.append(mkFilter('All', 'ALL'), mkFilter('Offense', 'OFFENSE'), mkFilter('Defense', 'DEFENSE'), mkFilter('Utility', 'UTILITY'))
 
-    filterRow.append(mkFilter('Tümü', 'ALL'), mkFilter('OFFENSE', 'OFFENSE'), mkFilter('DEFENSE', 'DEFENSE'), mkFilter('UTILITY', 'UTILITY'))
+    // Filter modules
+    const filtered = config.modules.defs.filter((d) => modulesFilter === 'ALL' || d.category === modulesFilter)
+    const totalPages = Math.max(1, Math.ceil(filtered.length / MODULES_PER_PAGE))
+    if (modulesPage >= totalPages) modulesPage = totalPages - 1
+    const pageItems = filtered.slice(modulesPage * MODULES_PER_PAGE, (modulesPage + 1) * MODULES_PER_PAGE)
+
+    const unlockedCount = Object.values(lastState.modulesUnlocked).filter(Boolean).length
 
     const list = el('div')
     list.style.display = 'grid'
     list.style.gridTemplateColumns = 'repeat(auto-fit, minmax(240px, 1fr))'
-    list.style.gap = '10px'
-    list.style.marginTop = '12px'
+    list.style.gap = '8px'
+    list.style.marginTop = '8px'
 
-    const unlockedCount = Object.values(lastState.modulesUnlocked).filter(Boolean).length
-
-    for (const def of config.modules.defs) {
-      if (modulesFilter !== 'ALL' && def.category !== modulesFilter) continue
-
+    for (const def of pageItems) {
       const card = el('div', 'panel')
       const ch = el('div', 'panel-header')
       const name = el('div')
@@ -597,19 +619,16 @@ export function createUIStateMachine(args: UIArgs) {
       const cb = el('div', 'panel-body')
 
       const effect = el('div', 'muted')
+      effect.style.fontSize = '12px'
       effect.textContent = moduleEffectText(def)
 
-      const icon = el('div', 'muted')
-      icon.style.marginTop = '6px'
-      icon.textContent = `İkon: ${def.iconConcept}`
-
       const actions = el('div', 'stack')
-      actions.style.marginTop = '10px'
+      actions.style.marginTop = '6px'
 
       const isUnlocked = !!lastState.modulesUnlocked[def.id]
       if (!isUnlocked) {
         const cost = moduleUnlockCostPoints(unlockedCount, config)
-        const b = btn(`Aç (${cost} puan)`, 'btn btn-primary')
+        const b = btn(`Unlock (${cost} pts)`, 'btn btn-primary')
         b.onclick = () => {
           if (!game) return
           const ok = game.unlockModule(def.id)
@@ -629,10 +648,7 @@ export function createUIStateMachine(args: UIArgs) {
         b1.onclick = () => {
           if (!game) return
           const ok = game.upgradeModule(def.id, 1)
-          if (!ok) {
-            flashFail(b1)
-            return
-          }
+          if (!ok) { flashFail(b1); return }
           lastState = game.getSnapshot()
           render()
         }
@@ -640,10 +656,7 @@ export function createUIStateMachine(args: UIArgs) {
         b10.onclick = () => {
           if (!game) return
           const ok = game.upgradeModule(def.id, 10)
-          if (!ok) {
-            flashFail(b10)
-            return
-          }
+          if (!ok) { flashFail(b10); return }
           lastState = game.getSnapshot()
           render()
         }
@@ -651,38 +664,51 @@ export function createUIStateMachine(args: UIArgs) {
         bM.onclick = () => {
           if (!game) return
           const ok = game.upgradeModule(def.id, 'max')
-          if (!ok) {
-            flashFail(bM)
-            return
-          }
+          if (!ok) { flashFail(bM); return }
           lastState = game.getSnapshot()
           render()
         }
 
-        actions.append(kv('Seviye', String(level), true), b1, b10, bM)
+        actions.append(kv('Level', String(level), true), b1, b10, bM)
       }
 
-      cb.append(effect, icon, actions)
+      cb.append(effect, actions)
       card.append(ch, cb)
       list.appendChild(card)
     }
 
-    body.append(filterRow, list)
+    // Pagination controls
+    const pager = el('div', 'hud-pager')
+    const prevBtn = btn('◀ Prev', 'btn')
+    prevBtn.onclick = () => { modulesPage = Math.max(0, modulesPage - 1); render() }
+    if (modulesPage === 0) prevBtn.disabled = true
+
+    const pageLabel = el('div', 'muted mono')
+    pageLabel.textContent = `${modulesPage + 1} / ${totalPages}`
+    pageLabel.style.fontSize = '13px'
+
+    const nextBtn = btn('Next ▶', 'btn')
+    nextBtn.onclick = () => { modulesPage = Math.min(totalPages - 1, modulesPage + 1); render() }
+    if (modulesPage >= totalPages - 1) nextBtn.disabled = true
+
+    pager.append(prevBtn, pageLabel, nextBtn)
+
+    body.append(filterRow, list, pager)
     panel.append(header, body)
     center.appendChild(panel)
   }
 
   function moduleEffectText(def: GameConfig['modules']['defs'][number]): string {
     const parts: string[] = []
-    if (def.dmgMultPerLevel) parts.push(`Hasar Çarpanı: +${(def.dmgMultPerLevel * 100).toFixed(1)}% / seviye`)
-    if (def.dmgFlatPerLevel) parts.push(`Düz Hasar: +${def.dmgFlatPerLevel} / seviye`)
-    if (def.fireRateBonusPerLevel) parts.push(`Atış Hızı: +${(def.fireRateBonusPerLevel * 100).toFixed(1)}% / seviye`)
-    if (def.rangeBonusPerLevel) parts.push(`Menzil: +${def.rangeBonusPerLevel} / seviye`)
-    if (def.armorPiercePerLevel) parts.push(`Zırh Delme: +${(def.armorPiercePerLevel * 100).toFixed(1)}% / seviye`)
-    if (def.baseHPBonusPerLevel) parts.push(`Base HP: +${def.baseHPBonusPerLevel} / seviye`)
-    if (def.goldMultPerLevel) parts.push(`Altın Çarpanı: +${(def.goldMultPerLevel * 100).toFixed(1)}% / seviye`)
+    if (def.dmgMultPerLevel) parts.push(`Damage Multiplier: +${(def.dmgMultPerLevel * 100).toFixed(1)}% / level`)
+    if (def.dmgFlatPerLevel) parts.push(`Flat Damage: +${def.dmgFlatPerLevel} / level`)
+    if (def.fireRateBonusPerLevel) parts.push(`Fire Rate: +${(def.fireRateBonusPerLevel * 100).toFixed(1)}% / level`)
+    if (def.rangeBonusPerLevel) parts.push(`Range: +${def.rangeBonusPerLevel} / level`)
+    if (def.armorPiercePerLevel) parts.push(`Armor Pierce: +${(def.armorPiercePerLevel * 100).toFixed(1)}% / level`)
+    if (def.baseHPBonusPerLevel) parts.push(`Base HP: +${def.baseHPBonusPerLevel} / level`)
+    if (def.goldMultPerLevel) parts.push(`Gold Multiplier: +${(def.goldMultPerLevel * 100).toFixed(1)}% / level`)
 
-    return parts.length ? parts.join(' • ') : 'Etki: (tanımlı değil)'
+    return parts.length ? parts.join(' • ') : 'Effect: (not defined)'
   }
 
   function renderPrestige() {
@@ -696,7 +722,7 @@ export function createUIStateMachine(args: UIArgs) {
     const header = el('div', 'panel-header')
     header.appendChild(el('div')).textContent = 'RESET PROTOCOL'
 
-    const back = btn('Geri', 'btn')
+    const back = btn('Back', 'btn')
     back.onclick = () => setScreen('hud')
     header.appendChild(back)
 
@@ -704,35 +730,35 @@ export function createUIStateMachine(args: UIArgs) {
 
     const run = el('div', 'muted')
     run.innerHTML = `
-      <div>En Yüksek Dalga: <span class="mono">${lastState.stats.bestWave}</span></div>
-      <div>Toplam Süre: <span class="mono">${formatTimeMMSS(lastState.stats.totalTimeSec)}</span></div>
-      <div>Prestij Puanı: <span class="mono">${lastState.prestigePoints}</span></div>
+      <div>Best Wave: <span class="mono">${lastState.stats.bestWave}</span></div>
+      <div>Total Time: <span class="mono">${formatTimeMMSS(lastState.stats.totalTimeSec)}</span></div>
+      <div>Prestige Points: <span class="mono">${lastState.prestigePoints}</span></div>
     `
 
     const preview = el('div', 'muted')
     preview.style.marginTop = '10px'
-    preview.textContent = 'Prestij çarpanı: 1 + μ·sqrt(P). (Deterministik)'
+    preview.textContent = 'Prestige multiplier: 1 + μ·sqrt(P). (Deterministic)'
 
     const confirmBox = el('div', 'panel')
     confirmBox.style.marginTop = '12px'
 
     const ch = el('div', 'panel-header')
-    ch.textContent = 'Onay'
+    ch.textContent = 'Confirm'
 
     const cb = el('div', 'panel-body')
-    const hold = btn('Basılı Tut: Onayla', 'btn btn-danger')
+    const hold = btn('Hold: Confirm', 'btn btn-danger')
     hold.style.width = '100%'
 
     let timer: number | null = null
     hold.onpointerdown = () => {
-      hold.textContent = 'Tutmaya devam…'
+      hold.textContent = 'Keep holding…'
       timer = window.setTimeout(() => {
         timer = null
         const res = game!.prestigeReset()
         if (!res.ok) {
-          alert('Prestij için yeterli koşul yok (şimdilik).')
+          alert('Not eligible for Prestige yet.')
         } else {
-          alert(`Prestij kazanıldı: +${res.gained}`)
+          alert(`Prestige gained: +${res.gained}`)
           setScreen('hud')
         }
       }, 900)
@@ -741,7 +767,7 @@ export function createUIStateMachine(args: UIArgs) {
     const cancel = () => {
       if (timer) window.clearTimeout(timer)
       timer = null
-      hold.textContent = 'Basılı Tut: Onayla'
+      hold.textContent = 'Hold: Confirm'
     }
 
     hold.onpointerup = cancel
@@ -765,16 +791,16 @@ export function createUIStateMachine(args: UIArgs) {
     panel.style.pointerEvents = 'auto'
 
     const header = el('div', 'panel-header')
-    header.appendChild(el('div')).textContent = 'Ayarlar'
+    header.appendChild(el('div')).textContent = 'Settings'
 
-    const back = btn('Geri', 'btn')
+    const back = btn('Back', 'btn')
     back.onclick = () => setScreen('hud')
     header.appendChild(back)
 
     const body = el('div', 'panel-body')
 
     const audio = el('div')
-    audio.innerHTML = `<div style="font-weight:800">Ses</div>`
+    audio.innerHTML = `<div style="font-weight:800">Audio</div>`
     const slider = document.createElement('input')
     slider.type = 'range'
     slider.min = '0'
@@ -789,7 +815,7 @@ export function createUIStateMachine(args: UIArgs) {
 
     const quality = el('div')
     quality.style.marginTop = '12px'
-    quality.innerHTML = `<div style="font-weight:800">Kalite</div>`
+    quality.innerHTML = `<div style="font-weight:800">Quality</div>`
 
     const select = document.createElement('select')
     select.className = 'btn'
@@ -809,7 +835,7 @@ export function createUIStateMachine(args: UIArgs) {
 
     const nf = el('div')
     nf.style.marginTop = '12px'
-    nf.innerHTML = `<div style="font-weight:800">Sayı Formatı</div>`
+    nf.innerHTML = `<div style="font-weight:800">Number Format</div>`
 
     const nfRow = el('div', 'stack')
     const suf = btn('Suffix', 'btn')
@@ -824,6 +850,8 @@ export function createUIStateMachine(args: UIArgs) {
     }
     nfRow.append(suf, sci)
 
+    nf.appendChild(nfRow)
+
     const reduce = el('div')
     reduce.style.marginTop = '12px'
     const chk = document.createElement('input')
@@ -837,7 +865,7 @@ export function createUIStateMachine(args: UIArgs) {
     lbl.style.display = 'flex'
     lbl.style.gap = '10px'
     lbl.style.alignItems = 'center'
-    lbl.append(chk, document.createTextNode('Efektleri azalt (motion/glow)'))
+    lbl.append(chk, document.createTextNode('Reduce effects (motion/glow)'))
     reduce.appendChild(lbl)
 
     const savePanel = el('div', 'panel')
@@ -855,8 +883,12 @@ export function createUIStateMachine(args: UIArgs) {
     const exportBtn = btn('Export', 'btn')
     exportBtn.onclick = async () => {
       ta.value = JSON.stringify(game!.getSnapshot())
-      await navigator.clipboard.writeText(ta.value)
-      alert('Kopyalandı.')
+      try {
+        await navigator.clipboard.writeText(ta.value)
+        alert('Copied.')
+      } catch {
+        // Clipboard may be unavailable; textarea still contains the save.
+      }
     }
 
     const importBtn = btn('Import (Replace)', 'btn btn-danger')
@@ -864,19 +896,51 @@ export function createUIStateMachine(args: UIArgs) {
       try {
         const parsed = JSON.parse(ta.value)
         game!.setSnapshot(parsed)
-        alert('Yüklendi.')
+        lastState = game!.getSnapshot()
+        alert('Loaded.')
+        render()
       } catch {
-        alert('Geçersiz metin.')
+        alert('Invalid text.')
       }
     }
 
-    sb.append(ta, el('div', 'stack'))
-    sb.lastElementChild!.append(exportBtn, importBtn)
+    const saveButtons = el('div', 'stack')
+    saveButtons.append(exportBtn, importBtn)
+    sb.append(ta, saveButtons)
     savePanel.append(sh, sb)
 
-    body.append(audio, quality, nf, nfRow, reduce, savePanel)
+    body.append(audio, quality, nf, reduce, savePanel)
     panel.append(header, body)
     center.appendChild(panel)
+  }
+
+  function showUpgradesModal() {
+    if (!lastState) return
+
+    const modal = el('div', 'panel')
+    modal.style.width = 'min(720px, calc(100vw - 20px))'
+    modal.style.pointerEvents = 'auto'
+
+    const h = el('div', 'panel-header')
+    const title = el('div')
+    title.textContent = 'Upgrades'
+    const close = btn('Close', 'btn')
+    const overlay = mountModal(modal)
+    close.onclick = () => overlay.remove()
+    h.append(title, close)
+
+    const b = el('div', 'panel-body')
+    b.appendChild(renderUpgradeRow('Damage', 'damage', lastState.towerUpgrades.damageLevel))
+    b.appendChild(renderUpgradeRow('Fire Rate', 'fireRate', lastState.towerUpgrades.fireRateLevel))
+    b.appendChild(renderUpgradeRow('Range', 'range', lastState.towerUpgrades.rangeLevel))
+    b.appendChild(renderUpgradeRow('Base HP', 'baseHP', lastState.towerUpgrades.baseHPLevel))
+
+    modal.append(h, b)
+
+    // Optional: click outside to close
+    overlay.addEventListener('pointerdown', (e) => {
+      if (e.target === overlay) overlay.remove()
+    })
   }
 
   function renderStats() {
@@ -888,25 +952,25 @@ export function createUIStateMachine(args: UIArgs) {
     panel.style.pointerEvents = 'auto'
 
     const header = el('div', 'panel-header')
-    header.appendChild(el('div')).textContent = 'Codex / İstatistikler'
+    header.appendChild(el('div')).textContent = 'Codex / Stats'
 
-    const back = btn('Geri', 'btn')
+    const back = btn('Back', 'btn')
     back.onclick = () => setScreen('hud')
     header.appendChild(back)
 
     const body = el('div', 'panel-body')
 
     body.append(
-      kv('Toplam Öldürme', String(lastState.stats.totalKills), true),
-      kv('Toplam Kaçış', String(lastState.stats.totalEscapes), true),
-      kv('En Yüksek Dalga', String(lastState.stats.bestWave), true),
-      kv('Koşu Sayısı', String(lastState.stats.runsCount), true),
+      kv('Total Kills', String(lastState.stats.totalKills), true),
+      kv('Total Escapes', String(lastState.stats.totalEscapes), true),
+      kv('Best Wave', String(lastState.stats.bestWave), true),
+      kv('Runs', String(lastState.stats.runsCount), true),
     )
 
     body.appendChild(hr())
 
     const enemy = el('div', 'muted')
-    enemy.innerHTML = `<div style="font-weight:800">Enemy Tipleri</div>`
+    enemy.innerHTML = `<div style="font-weight:800">Enemy Types</div>`
     for (const t of config.enemies.types) {
       const row = el('div', 'muted')
       row.innerHTML = `• <span class="mono">${t.id}</span> — ${t.nameTR} (hp×${t.hpMult}, armor×${t.armorMult})`
@@ -916,7 +980,7 @@ export function createUIStateMachine(args: UIArgs) {
     const formula = el('div', 'muted')
     formula.style.marginTop = '10px'
     formula.innerHTML = `
-      <div style="font-weight:800">Deterministik Formüller</div>
+      <div style="font-weight:800">Deterministic Formulas</div>
       <div class="mono">enemy_type(w,i) = (A·w + B·i + C) mod K</div>
       <div class="mono">t_i = T · (i/N)^p</div>
       <div class="mono">TotalEHP(w) = DPS_snap · T · ρ · G(w)</div>
@@ -943,13 +1007,13 @@ export function createUIStateMachine(args: UIArgs) {
     const warn = report.penaltyFactor < 1
 
     b.innerHTML = `
-      <div class="muted">Öldürülen: <span class="mono">${report.killed}</span> • Kaçan: <span class="mono">${report.escaped}</span></div>
-      <div class="muted">KR: <span class="mono">${report.killRatio.toFixed(2)}</span> • Hedef: <span class="mono">${report.threshold.toFixed(2)}</span></div>
-      <div class="muted">Ödül: <span class="mono">${formatNumber(report.rewardGold, lastState?.settings.numberFormat ?? 'suffix')}</span> altın • <span class="mono">${report.rewardPoints}</span> puan</div>
-      <div class="muted" style="margin-top:6px; color:${warn ? 'var(--danger)' : 'var(--neon-lime)'}">Ceza Çarpanı: <span class="mono">x${report.penaltyFactor.toFixed(2)}</span></div>
+      <div class="muted">Killed: <span class="mono">${report.killed}</span> • Escaped: <span class="mono">${report.escaped}</span></div>
+      <div class="muted">KR: <span class="mono">${report.killRatio.toFixed(2)}</span> • Target: <span class="mono">${report.threshold.toFixed(2)}</span></div>
+      <div class="muted">Reward: <span class="mono">${formatNumber(report.rewardGold, lastState?.settings.numberFormat ?? 'suffix')}</span> gold • <span class="mono">${report.rewardPoints}</span> points</div>
+      <div class="muted" style="margin-top:6px; color:${warn ? 'var(--danger)' : 'var(--neon-lime)'}">Penalty Multiplier: <span class="mono">x${report.penaltyFactor.toFixed(2)}</span></div>
     `
 
-    const c = btn('Devam', 'btn btn-primary')
+    const c = btn('Continue', 'btn btn-primary')
     const overlay = mountModal(modal)
     c.onclick = () => {
       overlay.remove()
@@ -985,15 +1049,15 @@ export function createUIStateMachine(args: UIArgs) {
     const b = el('div', 'panel-body')
 
     b.innerHTML = `
-      <div class="muted">Süre: <span class="mono">${formatTimeMMSS(result.elapsedSec)}</span></div>
-      <div class="muted">Tahmini dalga: <span class="mono">${result.offlineWaves}</span></div>
-      <div class="muted">Kazanç: <span class="mono">${formatNumber(result.gainedGold, lastState?.settings.numberFormat ?? 'suffix')}</span> (x${result.factorApplied.toFixed(2)})</div>
-      <div class="muted" style="margin-top:6px">Not: ${result.estimatedKillRatioNoteTR}</div>
+      <div class="muted">Time: <span class="mono">${formatTimeMMSS(result.elapsedSec)}</span></div>
+      <div class="muted">Estimated waves: <span class="mono">${result.offlineWaves}</span></div>
+      <div class="muted">Gains: <span class="mono">${formatNumber(result.gainedGold, lastState?.settings.numberFormat ?? 'suffix')}</span> (x${result.factorApplied.toFixed(2)})</div>
+      <div class="muted" style="margin-top:6px">Note: ${result.estimatedKillRatioNoteTR}</div>
     `
 
     const overlay = mountModal(modal)
 
-    const collect = btn('Topla', 'btn btn-primary')
+    const collect = btn('Collect', 'btn btn-primary')
     collect.onclick = () => {
       if (!game) return
       game.setSnapshot(result.stateAfter)
@@ -1002,9 +1066,9 @@ export function createUIStateMachine(args: UIArgs) {
       setScreen('menu')
     }
 
-    const ad = btn('2x için Reklam İzle (deterministik çarpan)', 'btn')
+    const ad = btn('Watch Ad for 2x (deterministic multiplier)', 'btn')
     ad.onclick = () => {
-      alert('Bu prototipte reklam yok; çarpan demo amaçlı. İstersen UI entegrasyonu ekleriz.')
+      alert('No ads in this prototype; the multiplier is for demo purposes. We can add a real ad integration later.')
     }
 
     const row = el('div', 'stack')
@@ -1029,9 +1093,9 @@ export function createUIStateMachine(args: UIArgs) {
 
     const b = el('div', 'panel-body')
     b.innerHTML = `
-      <div class="muted">Bittiği Dalga: <span class="mono">${summary.endedAtWave}</span></div>
-      <div class="muted">Toplam Altın: <span class="mono">${formatNumber(summary.totalGoldThisRun, lastState?.settings.numberFormat ?? 'suffix')}</span></div>
-      <div class="muted">Süre: <span class="mono">${formatTimeMMSS(summary.totalTimeSec)}</span></div>
+      <div class="muted">Ended at wave: <span class="mono">${summary.endedAtWave}</span></div>
+      <div class="muted">Total gold: <span class="mono">${formatNumber(summary.totalGoldThisRun, lastState?.settings.numberFormat ?? 'suffix')}</span></div>
+      <div class="muted">Time: <span class="mono">${formatTimeMMSS(summary.totalTimeSec)}</span></div>
     `
 
     const overlay = mountModal(modal)
@@ -1039,13 +1103,13 @@ export function createUIStateMachine(args: UIArgs) {
     const row = el('div', 'stack')
     row.style.marginTop = '10px'
 
-    const menu = btn('Menü', 'btn')
+    const menu = btn('Menu', 'btn')
     menu.onclick = () => {
       overlay.remove()
       setScreen('menu')
     }
 
-    const newRun = btn('Yeni Koşu', 'btn btn-primary')
+    const newRun = btn('New Run', 'btn btn-primary')
     newRun.onclick = () => {
       overlay.remove()
       game?.newRun()

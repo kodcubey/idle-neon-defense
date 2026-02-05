@@ -45,9 +45,8 @@ export type SimPublic = {
   killed: number
   escaped: number
   spawnedSoFar: number
-  timeScale: 1 | 2 | 4
+  timeScale: 1 | 2 | 3
   paused: boolean
-  auto: boolean
   enemies: ReadonlyArray<EnemyEntity>
   projectiles: ReadonlyArray<ProjectileEntity>
   arena: {
@@ -106,8 +105,7 @@ export class SimEngine {
   private projectiles: ProjectileEntity[] = []
 
   private paused = false
-  private auto = true
-  private timeScale: 1 | 2 | 4 = 1
+  private timeScale: 1 | 2 | 3 = 2
 
   private towerPos: Vec2 = { x: 0, y: 0 }
   private towerCooldown = 0
@@ -153,7 +151,6 @@ export class SimEngine {
       spawnedSoFar: this.spawnedSoFar,
       timeScale: this.timeScale,
       paused: this.paused,
-      auto: this.auto,
       enemies: this.enemies,
       projectiles: this.projectiles,
       arena: {
@@ -193,11 +190,7 @@ export class SimEngine {
     this.paused = p
   }
 
-  toggleAuto() {
-    this.auto = !this.auto
-  }
-
-  setTimeScale(scale: 1 | 2 | 4) {
+  setTimeScale(scale: 1 | 2 | 3) {
     this.timeScale = scale
   }
 
@@ -318,7 +311,6 @@ export class SimEngine {
 
   private stepTower(dtSec: number) {
     this.towerCooldown = Math.max(0, this.towerCooldown - dtSec)
-    if (!this.auto) return
     if (this.towerCooldown > 0) return
 
     const pub = this.getPublic()

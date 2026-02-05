@@ -48,6 +48,10 @@ export async function createNeonGridApp(mount: NeonGridMount) {
 
   ui.bindGame(game)
 
+  // Pause by default on first load. Gameplay starts when the user presses
+  // Continue (unpause) or New Run (starts unpaused).
+  game.setPaused(true)
+
   if (offlineResult.hasOffline) {
     game.setPaused(true)
     ui.showOffline(offlineResult)

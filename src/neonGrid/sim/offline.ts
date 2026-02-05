@@ -74,7 +74,7 @@ export function applyOfflineProgress(args: {
     hasOffline: true,
     elapsedSec,
     offlineWaves,
-    estimatedKillRatioNoteTR: 'Çevrimdışı Öldürme Oranı tahminidir (deterministik).',
+    estimatedKillRatioNoteTR: 'Offline Kill Ratio is an estimate (deterministic).',
     gainedGold,
     factorApplied,
     stateBefore,

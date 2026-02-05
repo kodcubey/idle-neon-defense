@@ -6,7 +6,7 @@ export type Settings = {
   quality: QualityMode
   numberFormat: NumberFormat
   reduceEffects: boolean
-  language: 'tr'
+  language: 'tr' | 'en'
 }
 
 export type ModuleCategory = 'OFFENSE' | 'DEFENSE' | 'UTILITY'
@@ -54,7 +54,7 @@ export type GameConfig = {
   sim: {
     tickHz: number
     waveDurationSec: number
-    timeScales: ReadonlyArray<1 | 2 | 4>
+    timeScales: ReadonlyArray<1 | 2 | 3>
     autoOverlayCloseSec: number
   }
 

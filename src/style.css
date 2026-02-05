@@ -93,9 +93,22 @@ body {
   inset: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  pointer-events: auto !important;
+  gap: 6px;
+  padding: 6px 8px;
+  pointer-events: none;
+}
+
+.ui-layer > * {
+  pointer-events: auto;
+}
+
+.ng-modal-overlay {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 60px;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  backdrop-filter: blur(6px);
 }
 
 .row {
@@ -110,7 +123,7 @@ body {
   border: 1px solid var(--stroke);
   box-shadow: var(--shadow);
   backdrop-filter: blur(8px);
-  border-radius: 14px;
+  border-radius: 10px;
   pointer-events: auto !important;
 }
 
@@ -118,12 +131,13 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px;
+  padding: 6px 10px;
   border-bottom: 1px solid rgba(34, 245, 255, 0.16);
+  font-size: 13px;
 }
 
 .panel-body {
-  padding: 10px 12px;
+  padding: 8px 10px;
 }
 
 .btn {
@@ -131,8 +145,9 @@ body {
   border: 1px solid var(--stroke-strong);
   background: rgba(14, 18, 38, 0.5);
   color: var(--text);
-  border-radius: 12px;
-  padding: 10px 12px;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   pointer-events: auto !important;
@@ -146,6 +161,12 @@ body {
 
 .btn:active {
   transform: translateY(1px);
+}
+
+.btn.is-selected,
+.btn[aria-pressed="true"] {
+  border-color: var(--neon-lime);
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--neon-lime) 35%, transparent));
 }
 
 .btn-primary {
@@ -167,34 +188,71 @@ body {
 .hud-top {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 10px;
+  gap: 4px;
 }
 
 .hud-topbar {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 10px;
-  padding: 10px 12px;
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  flex-wrap: wrap;
 }
 
 .kv {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--stroke) 40%, transparent);
+  background: color-mix(in srgb, var(--panel) 40%, transparent);
+  min-width: 0;
 }
 
 .kv .k {
-  font-size: 12px;
+  font-size: 10px;
   color: var(--muted);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 .kv .v {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 700;
 }
 
+.hud-kpi {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px 8px;
+}
+
+.hud-kpi-block {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.hud-kpi-right {
+  text-align: right;
+}
+
+.hud-kpi-label {
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.hud-kpi-value {
+  font-size: 14px;
+  font-weight: 800;
+}
+
 .bar {
-  height: 10px;
+  height: 8px;
   border-radius: 999px;
   border: 1px solid rgba(234, 240, 255, 0.10);
   overflow: hidden;
@@ -215,17 +273,62 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px;
+  gap: 6px;
+  padding: 6px 8px;
 }
 
 .stack {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
-@media (max-width: 900px) {
+/* Scrollable center area for overlay screens */
+.ui-center {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  pointer-events: auto;
+}
+
+/* Inline Upgrades + Live row in HUD */
+.hud-inline-row {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  pointer-events: auto;
+}
+
+.hud-inline-panel {
+  flex: 1;
+  min-width: 0;
+  max-width: 340px;
+  font-size: 12px;
+}
+
+/* Modules pagination */
+.hud-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
+@media (max-width: 600px) {
   .hud-topbar {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .kv .v {
+    font-size: 12px;
   }
 }

@@ -8,7 +8,7 @@ function defaultSettings(): Settings {
     quality: 'high',
     numberFormat: 'suffix',
     reduceEffects: false,
-    language: 'tr',
+    language: 'en',
   }
 }
 
