@@ -39,7 +39,7 @@ export function createNewState(config: GameConfig, nowUTC: number): GameState {
     version: config.version,
     lastSaveTimestampUTC: nowUTC,
     wave: 1,
-    gold: 0,
+    gold: 50,
     points: 0,
     paladyumCarry: 0,
     baseHP: config.tower.baseHP0,
