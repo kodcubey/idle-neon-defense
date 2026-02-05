@@ -1,6 +1,6 @@
 import type { GameConfig, GameState } from '../types'
 import { clamp, aggregateModules } from './deterministic'
-import { moduleUnlockCostPoints, moduleUpgradeCostGold, upgradeCost } from './costs'
+import { moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost } from './costs'
 
 export function applyTowerUpgrade(args: {
   state: GameState
@@ -117,18 +117,18 @@ export function tryModuleUpgrade(args: {
 
   const cur = Math.max(0, Math.floor(state.moduleLevels[id] ?? 0))
 
-  const buyCount = args.amount === 'max' ? maxAffordableModuleLevels(cur, state.gold, cfg) : args.amount
+  const buyCount = args.amount === 'max' ? maxAffordableModuleLevels(cur, state.points, cfg) : args.amount
   if (buyCount <= 0) return { ok: false, state: args.state }
 
   let total = 0
   let L = cur
   for (let i = 0; i < buyCount; i++) {
-    total += moduleUpgradeCostGold(L, cfg)
+    total += moduleUpgradeCostPoints(L, cfg)
     L++
   }
-  if (state.gold < total) return { ok: false, state: args.state }
+  if (state.points < total) return { ok: false, state: args.state }
 
-  state.gold -= total
+  state.points -= total
   state.moduleLevels[id] = cur + buyCount
 
   // If HP module affects maxHP, clamp current.
@@ -137,14 +137,14 @@ export function tryModuleUpgrade(args: {
   return { ok: true, state }
 }
 
-function maxAffordableModuleLevels(currentLevel: number, gold: number, cfg: GameConfig): number {
+function maxAffordableModuleLevels(currentLevel: number, points: number, cfg: GameConfig): number {
   let n = 0
-  let g = gold
+  let p = points
   let L = Math.max(0, Math.floor(currentLevel))
   for (let iter = 0; iter < 10_000; iter++) {
-    const c = moduleUpgradeCostGold(L, cfg)
-    if (g < c) break
-    g -= c
+    const c = moduleUpgradeCostPoints(L, cfg)
+    if (p < c) break
+    p -= c
     L++
     n++
     if (n >= 10_000) break

@@ -215,6 +215,17 @@ export function calcPointsReward(wave: number, cfg: GameConfig): number {
   return Math.max(1, Math.ceil(cfg.progression.p0 * Math.pow(cfg.progression.pointsGrowthPer10, tier)))
 }
 
+export function calcPaladyumRewardForWave(state: GameState, wave: number, cfg: GameConfig): { reward: number; nextCarry: number } {
+  const base = calcPointsReward(wave, cfg)
+  const rate = typeof cfg.progression.paladyumDropRate === 'number' ? cfg.progression.paladyumDropRate : 1
+  const carry0 = typeof (state as any).paladyumCarry === 'number' ? (state as any).paladyumCarry : 0
+
+  const total = carry0 + base * rate
+  const reward = Math.max(0, Math.floor(total + 1e-9))
+  const nextCarry = Math.max(0, Math.min(1, total - reward))
+  return { reward, nextCarry }
+}
+
 export function calcWaveSnapshot(state: GameState, cfg: GameConfig): WaveSnapshot {
   const dpsSnap = calcDPS(state, cfg)
   const totalEHP = calcTotalEHP(state.wave, dpsSnap, cfg)
@@ -244,7 +255,7 @@ export function calcWaveReport(args: {
 
   const baseGold = calcBaseGold(snapshot.wave, snapshot.totalEHP, cfg)
   const rewardGold = baseGold * penaltyFactor * aggregateModules(state, cfg).goldMult
-  const rewardPoints = calcPointsReward(snapshot.wave, cfg)
+  const rewardPoints = calcPaladyumRewardForWave(state, snapshot.wave, cfg).reward
 
   const baseDamageFromEscapes = cfg.progression.enableEscapeDamage
     ? escaped * cfg.progression.escapeDamage * (1 + cfg.progression.deficitBoost * deficit)

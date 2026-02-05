@@ -17,6 +17,12 @@ export function moduleUpgradeCostGold(level: number, cfg: GameConfig): number {
   return cfg.economy.moduleUpgradeGoldBase * Math.pow(cfg.economy.moduleUpgradeGoldGrowth, L)
 }
 
+// Modules are upgraded with the meta currency ("points" / Paladyum). Keep the
+// underlying economy fields unchanged to avoid breaking existing configs.
+export function moduleUpgradeCostPoints(level: number, cfg: GameConfig): number {
+  return moduleUpgradeCostGold(level, cfg)
+}
+
 export function sumGeometric(a1: number, r: number, n: number): number {
   if (n <= 0) return 0
   if (r === 1) return a1 * n

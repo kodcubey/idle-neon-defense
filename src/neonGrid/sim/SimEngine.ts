@@ -6,6 +6,7 @@ import {
   calcSpawnTimeSec,
   calcWaveReport,
   calcWaveSnapshot,
+  calcPaladyumRewardForWave,
   clamp,
   fireRate,
   towerRange,
@@ -106,6 +107,7 @@ export class SimEngine {
 
   private paused = false
   private timeScale: 1 | 2 | 3 = 2
+  private awaitingNextWave = false
 
   private towerPos: Vec2 = { x: 0, y: 0 }
   private towerCooldown = 0
@@ -178,6 +180,7 @@ export class SimEngine {
     this.snapshot = calcWaveSnapshot(this._state, this.cfg)
     this.resetWaveRuntime()
     this.buildSpawnPlan()
+    this.awaitingNextWave = false
     this.cb.onStateChanged(this._state)
   }
 
@@ -188,6 +191,21 @@ export class SimEngine {
 
   setPaused(p: boolean) {
     this.paused = p
+  }
+
+  startNextWave() {
+    if (!this.awaitingNextWave) return
+    this.awaitingNextWave = false
+
+    this._state.wave++
+    this._state.stats.bestWave = Math.max(this._state.stats.bestWave, this._state.wave)
+
+    this.snapshot = calcWaveSnapshot(this._state, this.cfg)
+    this.resetWaveRuntime()
+    this.buildSpawnPlan()
+
+    this.paused = false
+    this.cb.onStateChanged(this._state)
   }
 
   setTimeScale(scale: 1 | 2 | 3) {
@@ -425,8 +443,11 @@ export class SimEngine {
       cfg: this.cfg,
     })
 
+    const pal = calcPaladyumRewardForWave(this._state, this.snapshot.wave, this.cfg)
+
     this._state.gold += report.rewardGold
     this._state.points += report.rewardPoints
+    ;(this._state as any).paladyumCarry = pal.nextCarry
 
     if (this.cfg.progression.enableEscapeDamage && report.baseDamageFromEscapes > 0) {
       this._state.baseHP = Math.max(0, this._state.baseHP - report.baseDamageFromEscapes)
@@ -446,13 +467,9 @@ export class SimEngine {
 
     this.cb.onWaveComplete(report)
 
-    this._state.wave++
-    this._state.stats.bestWave = Math.max(this._state.stats.bestWave, this._state.wave)
-
-    // Start the next wave.
-    this.snapshot = calcWaveSnapshot(this._state, this.cfg)
-    this.resetWaveRuntime()
-    this.buildSpawnPlan()
+    // Pause on wave complete; advance only when UI explicitly continues.
+    this.paused = true
+    this.awaitingNextWave = true
   }
 
   private createArena(viewport: { width: number; height: number }): {

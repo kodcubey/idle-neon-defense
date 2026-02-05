@@ -12,6 +12,8 @@ export type NeonGridGame = {
   setPaused: (p: boolean) => void
   setTimeScale: (s: 1 | 2 | 3) => void
 
+  continueNextWave: () => void
+
   newRun: () => void
 
   buyUpgrade: (key: 'damage' | 'fireRate' | 'range' | 'baseHP', amount: 1 | 10 | 'max') => boolean
@@ -117,6 +119,8 @@ export function createGame(args: {
 
   function applyState(next: GameState) {
     pendingSnapshot = { ...next }
+    // Quality is fixed to HIGH.
+    pendingSnapshot.settings = { ...pendingSnapshot.settings, quality: 'high' }
     syncPendingToBridge()
     if (engine) engine.setSnapshot(pendingSnapshot)
 
@@ -140,10 +144,20 @@ export function createGame(args: {
       if (engine) engine.setTimeScale(s)
     },
 
+    continueNextWave: () => {
+      if (engine) engine.startNextWave()
+    },
+
     newRun: () => {
       const prev = currentState()
       const s = createNewState(cfg, Date.now())
       s.stats.runsCount = (prev.stats.runsCount ?? 0) + 1
+
+      // Meta / persistent fields across runs.
+      s.points = prev.points
+      s.prestigePoints = prev.prestigePoints
+      s.settings = { ...prev.settings }
+
       applyState(s)
       pendingPaused = false
       if (engine) engine.setPaused(false)
@@ -188,6 +202,11 @@ export function createGame(args: {
 
       const next = createNewState(cfg, Date.now())
       next.prestigePoints = s.prestigePoints + gained
+
+      // Keep Paladyum permanent across prestige.
+      next.points = s.points
+      next.settings = { ...s.settings }
+
       next.stats.runsCount = (s.stats.runsCount ?? 0) + 1
       next.stats.bestWave = Math.max(next.stats.bestWave, 1)
       applyState(next)

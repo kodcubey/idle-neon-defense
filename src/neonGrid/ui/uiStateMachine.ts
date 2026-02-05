@@ -4,7 +4,7 @@ import type { SimPublic } from '../sim/SimEngine'
 import { btn, clear, el, hr, kv } from './dom'
 import { formatNumber, formatPct, formatTimeMMSS } from './format'
 import { calcPenaltyFactor, calcWaveSnapshot, clamp, calcDPS } from '../sim/deterministic'
-import { moduleUnlockCostPoints, moduleUpgradeCostGold, upgradeCost } from '../sim/costs'
+import { moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost } from '../sim/costs'
 
 export type UIScreen = 'boot' | 'menu' | 'hud' | 'modules' | 'prestige' | 'settings' | 'stats' | 'offline'
 
@@ -143,7 +143,7 @@ export function createUIStateMachine(args: UIArgs) {
 
   let modulesFilter: 'ALL' | 'OFFENSE' | 'DEFENSE' | 'UTILITY' = 'ALL'
   let modulesPage = 0
-  const MODULES_PER_PAGE = 6
+  const MODULES_PER_PAGE = 9
 
   let screen: UIScreen = args.initialState
 
@@ -315,6 +315,11 @@ export function createUIStateMachine(args: UIArgs) {
     const desc = el('div', 'muted')
     desc.textContent = 'No RNG: All outcomes are deterministic. Wave duration is fixed.'
 
+    const balances = el('div', 'muted')
+    balances.style.marginTop = '10px'
+    const pal = lastState?.points ?? 0
+    balances.innerHTML = `Paladyum: <span class="mono">${formatNumber(pal, lastState?.settings.numberFormat ?? 'suffix')}</span>`
+
     const row = el('div', 'stack')
     row.style.marginTop = '12px'
 
@@ -332,15 +337,36 @@ export function createUIStateMachine(args: UIArgs) {
       setScreen('hud')
     }
 
+    const modules = btn('Modules', 'btn')
+    modules.onclick = () => {
+      if (game) game.setPaused(true)
+      setScreen('modules')
+    }
+
+    const stats = btn('Stats', 'btn')
+    stats.onclick = () => {
+      if (game) game.setPaused(true)
+      setScreen('stats')
+    }
+
+    const prestige = btn('Prestige', 'btn')
+    prestige.onclick = () => {
+      if (game) game.setPaused(true)
+      setScreen('prestige')
+    }
+
     const settings = btn('Settings', 'btn')
-    settings.onclick = () => setScreen('settings')
+    settings.onclick = () => {
+      if (game) game.setPaused(true)
+      setScreen('settings')
+    }
 
     const credits = btn('Credits', 'btn')
     credits.onclick = () => {
       alert('NEON GRID — Deterministic Idle Tower Defense\nUI/Sim prototype skeleton.')
     }
 
-    row.append(cont, newRun, settings, credits)
+    row.append(cont, newRun, modules, stats, prestige, settings, credits)
 
     const card = el('div', 'panel')
     card.style.marginTop = '12px'
@@ -354,7 +380,7 @@ export function createUIStateMachine(args: UIArgs) {
     `
     card.append(ch, cb)
 
-    body.append(desc, row, card)
+    body.append(desc, balances, row, card)
     panel.append(header, body)
     center.appendChild(panel)
   }
@@ -373,7 +399,6 @@ export function createUIStateMachine(args: UIArgs) {
       kv('Wave', String(state.wave), true),
       kv('Time', formatTimeMMSS(timeLeft), true),
       kv('Gold', formatNumber(state.gold, state.settings.numberFormat), true),
-      kv('Points', formatNumber(state.points, state.settings.numberFormat), true),
       kv('DPS (snap)', formatNumber(sim.wave.dpsSnap, state.settings.numberFormat), true),
       kv('HP', `${formatNumber(state.baseHP, 'suffix')}`, true),
     )
@@ -438,19 +463,13 @@ export function createUIStateMachine(args: UIArgs) {
     const upgrades = btn('Upgrades', 'btn')
     upgrades.onclick = () => showUpgradesModal()
 
-    const modules = btn('Modules', 'btn')
-    modules.onclick = () => setScreen('modules')
+    const menu = btn('Menu', 'btn')
+    menu.onclick = () => {
+      if (game) game.setPaused(true)
+      setScreen('menu')
+    }
 
-    const stats = btn('Stats', 'btn')
-    stats.onclick = () => setScreen('stats')
-
-    const prestige = btn('Prestige', 'btn')
-    prestige.onclick = () => setScreen('prestige')
-
-    const settings = btn('Settings', 'btn')
-    settings.onclick = () => setScreen('settings')
-
-    rightStack.append(upgrades, modules, stats, prestige, settings)
+    rightStack.append(upgrades, menu)
 
     bb.append(leftStack, rightStack)
     bottomPanel.appendChild(bb)
@@ -573,10 +592,14 @@ export function createUIStateMachine(args: UIArgs) {
     header.appendChild(el('div')).textContent = 'Modules'
 
     const back = btn('Back', 'btn')
-    back.onclick = () => setScreen('hud')
+    back.onclick = () => setScreen('menu')
     header.appendChild(back)
 
     const body = el('div', 'panel-body')
+
+    const bal = el('div', 'muted')
+    bal.style.marginBottom = '8px'
+    bal.innerHTML = `Paladyum: <span class="mono">${formatNumber(lastState.points, lastState.settings.numberFormat)}</span>`
 
     // Filter row
     const filterRow = el('div', 'stack')
@@ -628,7 +651,7 @@ export function createUIStateMachine(args: UIArgs) {
       const isUnlocked = !!lastState.modulesUnlocked[def.id]
       if (!isUnlocked) {
         const cost = moduleUnlockCostPoints(unlockedCount, config)
-        const b = btn(`Unlock (${cost} pts)`, 'btn btn-primary')
+        const b = btn(`Unlock (${cost} Paladyum)`, 'btn btn-primary')
         b.onclick = () => {
           if (!game) return
           const ok = game.unlockModule(def.id)
@@ -642,9 +665,9 @@ export function createUIStateMachine(args: UIArgs) {
         actions.appendChild(b)
       } else {
         const level = lastState.moduleLevels[def.id] ?? 0
-        const cost = moduleUpgradeCostGold(level, config)
+        const cost = moduleUpgradeCostPoints(level, config)
 
-        const b1 = btn(`+1 (₲${formatNumber(cost, lastState.settings.numberFormat)})`, 'btn')
+        const b1 = btn(`+1 (${formatNumber(cost, lastState.settings.numberFormat)} Paladyum)`, 'btn')
         b1.onclick = () => {
           if (!game) return
           const ok = game.upgradeModule(def.id, 1)
@@ -693,7 +716,7 @@ export function createUIStateMachine(args: UIArgs) {
 
     pager.append(prevBtn, pageLabel, nextBtn)
 
-    body.append(filterRow, list, pager)
+    body.append(bal, filterRow, list, pager)
     panel.append(header, body)
     center.appendChild(panel)
   }
@@ -723,7 +746,7 @@ export function createUIStateMachine(args: UIArgs) {
     header.appendChild(el('div')).textContent = 'RESET PROTOCOL'
 
     const back = btn('Back', 'btn')
-    back.onclick = () => setScreen('hud')
+    back.onclick = () => setScreen('menu')
     header.appendChild(back)
 
     const body = el('div', 'panel-body')
@@ -794,7 +817,7 @@ export function createUIStateMachine(args: UIArgs) {
     header.appendChild(el('div')).textContent = 'Settings'
 
     const back = btn('Back', 'btn')
-    back.onclick = () => setScreen('hud')
+    back.onclick = () => setScreen('menu')
     header.appendChild(back)
 
     const body = el('div', 'panel-body')
@@ -813,26 +836,6 @@ export function createUIStateMachine(args: UIArgs) {
     }
     audio.appendChild(slider)
 
-    const quality = el('div')
-    quality.style.marginTop = '12px'
-    quality.innerHTML = `<div style="font-weight:800">Quality</div>`
-
-    const select = document.createElement('select')
-    select.className = 'btn'
-    select.style.width = '100%'
-    ;['low', 'med', 'high'].forEach((q) => {
-      const o = document.createElement('option')
-      o.value = q
-      o.textContent = q.toUpperCase()
-      if (lastState!.settings.quality === q) o.selected = true
-      select.appendChild(o)
-    })
-    select.onchange = () => {
-      lastState!.settings.quality = select.value as any
-      game!.setSnapshot({ ...lastState! })
-    }
-    quality.appendChild(select)
-
     const nf = el('div')
     nf.style.marginTop = '12px'
     nf.innerHTML = `<div style="font-weight:800">Number Format</div>`
@@ -840,13 +843,27 @@ export function createUIStateMachine(args: UIArgs) {
     const nfRow = el('div', 'stack')
     const suf = btn('Suffix', 'btn')
     const sci = btn('Scientific', 'btn')
+
+    const markNF = () => {
+      const active = lastState!.settings.numberFormat
+      suf.classList.toggle('is-selected', active === 'suffix')
+      sci.classList.toggle('is-selected', active === 'scientific')
+      suf.setAttribute('aria-pressed', active === 'suffix' ? 'true' : 'false')
+      sci.setAttribute('aria-pressed', active === 'scientific' ? 'true' : 'false')
+    }
+    markNF()
+
     suf.onclick = () => {
       lastState!.settings.numberFormat = 'suffix'
       game!.setSnapshot({ ...lastState! })
+      markNF()
+      render()
     }
     sci.onclick = () => {
       lastState!.settings.numberFormat = 'scientific'
       game!.setSnapshot({ ...lastState! })
+      markNF()
+      render()
     }
     nfRow.append(suf, sci)
 
@@ -909,7 +926,7 @@ export function createUIStateMachine(args: UIArgs) {
     sb.append(ta, saveButtons)
     savePanel.append(sh, sb)
 
-    body.append(audio, quality, nf, reduce, savePanel)
+    body.append(audio, nf, reduce, savePanel)
     panel.append(header, body)
     center.appendChild(panel)
   }
@@ -955,7 +972,7 @@ export function createUIStateMachine(args: UIArgs) {
     header.appendChild(el('div')).textContent = 'Codex / Stats'
 
     const back = btn('Back', 'btn')
-    back.onclick = () => setScreen('hud')
+    back.onclick = () => setScreen('menu')
     header.appendChild(back)
 
     const body = el('div', 'panel-body')
@@ -1009,7 +1026,7 @@ export function createUIStateMachine(args: UIArgs) {
     b.innerHTML = `
       <div class="muted">Killed: <span class="mono">${report.killed}</span> • Escaped: <span class="mono">${report.escaped}</span></div>
       <div class="muted">KR: <span class="mono">${report.killRatio.toFixed(2)}</span> • Target: <span class="mono">${report.threshold.toFixed(2)}</span></div>
-      <div class="muted">Reward: <span class="mono">${formatNumber(report.rewardGold, lastState?.settings.numberFormat ?? 'suffix')}</span> gold • <span class="mono">${report.rewardPoints}</span> points</div>
+      <div class="muted">Reward: <span class="mono">${formatNumber(report.rewardGold, lastState?.settings.numberFormat ?? 'suffix')}</span> gold • <span class="mono">${report.rewardPoints}</span> Paladyum</div>
       <div class="muted" style="margin-top:6px; color:${warn ? 'var(--danger)' : 'var(--neon-lime)'}">Penalty Multiplier: <span class="mono">x${report.penaltyFactor.toFixed(2)}</span></div>
     `
 
@@ -1017,6 +1034,7 @@ export function createUIStateMachine(args: UIArgs) {
     const overlay = mountModal(modal)
     c.onclick = () => {
       overlay.remove()
+      game?.continueNextWave()
     }
 
     const row = el('div', 'stack')
@@ -1025,11 +1043,6 @@ export function createUIStateMachine(args: UIArgs) {
     b.appendChild(row)
 
     modal.append(h, b)
-    window.setTimeout(() => {
-      if (overlay.isConnected) {
-        overlay.remove()
-      }
-    }, config.sim.autoOverlayCloseSec * 1000)
   }
 
   function showOffline(result: OfflineProgressResult) {

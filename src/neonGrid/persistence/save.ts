@@ -30,11 +30,7 @@ export function createNewState(config: GameConfig, nowUTC: number): GameState {
     moduleLevels[def.id] = 0
   }
 
-  // Deterministic default: unlock first 2 modules for onboarding.
-  const first = config.modules.defs[0]
-  const second = config.modules.defs[1]
-  if (first) modulesUnlocked[first.id] = true
-  if (second) modulesUnlocked[second.id] = true
+  // Modules start locked; unlock with Paladyum in the Modules screen.
 
   const modulesEquipped: Record<number, string | null> = {}
   for (let s = 1; s <= config.modules.slotCount; s++) modulesEquipped[s] = null
@@ -45,6 +41,7 @@ export function createNewState(config: GameConfig, nowUTC: number): GameState {
     wave: 1,
     gold: 0,
     points: 0,
+    paladyumCarry: 0,
     baseHP: config.tower.baseHP0,
     towerUpgrades: {
       damageLevel: 1,
@@ -85,6 +82,10 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
     version: config.version,
   }
 
+  // Settings: ensure object and force quality to HIGH (fixed).
+  if (!merged.settings || typeof merged.settings !== 'object') merged.settings = { ...base.settings }
+  merged.settings = { ...base.settings, ...merged.settings, quality: 'high' }
+
   // Legacy compatibility: if older saves had towerLevel, map it to damageLevel.
   const anyMerged = merged as unknown as { towerLevel?: number }
   if (!merged.towerUpgrades || typeof merged.towerUpgrades !== 'object') {
@@ -108,6 +109,11 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
   }
 
   if (!merged.lastSaveTimestampUTC || merged.lastSaveTimestampUTC <= 0) merged.lastSaveTimestampUTC = nowUTC
+
+  if (typeof (merged as any).paladyumCarry !== 'number' || !Number.isFinite((merged as any).paladyumCarry)) {
+    ;(merged as any).paladyumCarry = 0
+  }
+  ;(merged as any).paladyumCarry = Math.max(0, Math.min(1, (merged as any).paladyumCarry))
   return merged
 }
 

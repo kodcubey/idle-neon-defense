@@ -82,7 +82,8 @@ export const defaultConfig: GameConfig = {
     gamma: 0.72,
     goldWaveK: 0.18,
     p0: 1,
-    pointsGrowthPer10: 1.28,
+    pointsGrowthPer10: 1.18,
+    paladyumDropRate: 0.01,
 
     enableEscapeDamage: true,
     escapeDamage: 1.4,
@@ -105,10 +106,10 @@ export const defaultConfig: GameConfig = {
   economy: {
     upgradeCostBase: 10,
     upgradeCostGrowth: 1.13,
-    moduleUnlockPointCostBase: 2,
-    moduleUnlockPointCostGrowth: 1.22,
-    moduleUpgradeGoldBase: 25,
-    moduleUpgradeGoldGrowth: 1.16,
+    moduleUnlockPointCostBase: 25,
+    moduleUnlockPointCostGrowth: 1.35,
+    moduleUpgradeGoldBase: 80,
+    moduleUpgradeGoldGrowth: 1.22,
   },
 
   enemies: {

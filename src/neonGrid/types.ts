@@ -119,6 +119,9 @@ export type GameConfig = {
     goldWaveK: number
     p0: number
     pointsGrowthPer10: number
+    // Meta currency (Paladyum) drop rate multiplier applied to the base points reward.
+    // Example: 0.01 means ~1% of the previous points income, accumulated deterministically.
+    paladyumDropRate: number
 
     // Escapes
     enableEscapeDamage: boolean
@@ -174,6 +177,8 @@ export type GameState = {
   wave: number
   gold: number
   points: number
+  // Deterministic carry for fractional Paladyum rewards (0..1).
+  paladyumCarry: number
 
   baseHP: number
   towerUpgrades: {

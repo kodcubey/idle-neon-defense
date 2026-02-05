@@ -6,7 +6,7 @@ import {
   calcTotalEHP,
   clamp,
   calcBaseGold,
-  calcPointsReward,
+  calcPaladyumRewardForWave,
   aggregateModules,
 } from './deterministic'
 
@@ -62,7 +62,9 @@ export function applyOfflineProgress(args: {
     const goldMult = aggregateModules(state, config).goldMult
     gainedGold += baseGold * penaltyFactor * factorApplied * goldMult
 
-    gainedPoints += calcPointsReward(w, config)
+    const pal = calcPaladyumRewardForWave(state, w, config)
+    gainedPoints += pal.reward
+    ;(state as any).paladyumCarry = pal.nextCarry
   }
 
   state.gold += gainedGold
