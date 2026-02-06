@@ -124,10 +124,14 @@ export class SimEngine {
     baseHalfSize: number
   }
 
+  private viewport: { width: number; height: number }
+
   constructor(args: { initialState: GameState; config: GameConfig; callbacks: SimCallbacks; viewport: { width: number; height: number } }) {
     this.cfg = args.config
     this.cb = args.callbacks
     this._state = { ...args.initialState }
+
+    this.viewport = { ...args.viewport }
 
     this.arena = this.createArena(args.viewport)
     this.towerPos = { ...this.arena.center }
@@ -206,8 +210,54 @@ export class SimEngine {
   }
 
   setViewport(viewport: { width: number; height: number }) {
-    this.arena = this.createArena(viewport)
+    const next = {
+      width: Math.max(1, viewport.width),
+      height: Math.max(1, viewport.height),
+    }
+
+    const prev = this.viewport
+    this.viewport = next
+
+    const sx = prev.width > 0 ? next.width / prev.width : 1
+    const sy = prev.height > 0 ? next.height / prev.height : 1
+
+    // Recompute arena based on new viewport.
+    this.arena = this.createArena(next)
     this.towerPos = { ...this.arena.center }
+
+    // Rescale existing runtime entities into the new coordinate space so they
+    // don't drift away from the tower/base after a resize.
+    if (sx !== 1 || sy !== 1) {
+      for (const e of this.enemies) {
+        e.x *= sx
+        e.y *= sy
+      }
+      for (const p of this.projectiles) {
+        p.x *= sx
+        p.y *= sy
+      }
+    }
+
+    // Retarget enemy velocities toward the (possibly moved) base center.
+    // Enemies store velocity, not a steering target; without this, a resize can
+    // make them head toward the old center and look "random".
+    for (const e of this.enemies) {
+      if (!e.alive) continue
+      const dx = this.arena.center.x - e.x
+      const dy = this.arena.center.y - e.y
+      const dist = Math.hypot(dx, dy)
+      const inv = dist <= 1e-6 ? 0 : 1 / dist
+      e.vx = dx * inv * e.speed
+      e.vy = dy * inv * e.speed
+    }
+
+    // Spawn plan depends on arena bounds/center. Rebuild it and advance the
+    // cursor to the first spawn after the current wave time.
+    this.buildSpawnPlan()
+    let cursor = 0
+    while (cursor < this.spawnPlan.length && this.spawnPlan[cursor].spawnAtSec <= this.waveTimeSec) cursor++
+    this.spawnCursor = cursor
+    this.spawnedSoFar = cursor
   }
 
   setPaused(p: boolean) {
