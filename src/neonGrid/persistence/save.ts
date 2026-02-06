@@ -108,7 +108,8 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
     if (!(s in merged.modulesEquipped)) merged.modulesEquipped[s] = null
   }
 
-  if (!merged.lastSaveTimestampUTC || merged.lastSaveTimestampUTC <= 0) merged.lastSaveTimestampUTC = nowUTC
+  // Offline progression is disabled; always refresh the save timestamp on load.
+  merged.lastSaveTimestampUTC = nowUTC
 
   if (typeof (merged as any).paladyumCarry !== 'number' || !Number.isFinite((merged as any).paladyumCarry)) {
     ;(merged as any).paladyumCarry = 0

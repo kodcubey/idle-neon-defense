@@ -1,9 +1,9 @@
 import { defaultConfig } from './config/defaultConfig'
 import { loadOrCreateSave, saveSnapshot } from './persistence/save'
 import { createFirebaseSync } from './persistence/firebaseSync'
-import { applyOfflineProgress } from './sim/offline'
 import { createUIStateMachine } from './ui/uiStateMachine'
 import { installDeterministicNoRng } from './noRng'
+import type { OfflineProgressResult } from './types'
 
 export type NeonGridMount = {
   gameRoot: HTMLDivElement
@@ -22,16 +22,25 @@ export async function createNeonGridApp(mount: NeonGridMount) {
   const nowUTC = Date.now()
   const save = loadOrCreateSave(config, nowUTC)
 
-  const offlineResult = applyOfflineProgress({
-    state: save.state,
-    nowUTC,
-    config,
-  })
+  // Offline progression is disabled: always start from the saved state
+  // without simulating elapsed time while the player is away.
+  save.state.lastSaveTimestampUTC = nowUTC
+  saveSnapshot(config, save.state)
+
+  const offlineResult: OfflineProgressResult = {
+    hasOffline: false,
+    elapsedSec: 0,
+    offlineWaves: 0,
+    estimatedKillRatioNoteTR: '—',
+    gainedGold: 0,
+    factorApplied: 0,
+    stateAfter: save.state,
+  }
 
   const ui = createUIStateMachine({
     root: mount.uiRoot,
     config,
-    initialState: offlineResult.hasOffline ? 'offline' : 'boot',
+    initialState: 'boot',
     offlineResult,
     firebaseSync,
   })
@@ -66,12 +75,7 @@ export async function createNeonGridApp(mount: NeonGridMount) {
   // Continue (unpause) or New Run (starts unpaused).
   game.setPaused(true)
 
-  if (offlineResult.hasOffline) {
-    game.setPaused(true)
-    ui.showOffline(offlineResult)
-  }
-
-  // Persist on visibility changes; offline progress is computed on resume.
+  // Persist on visibility changes. Offline progression is disabled.
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
       const snapshot = game.getSnapshot()
@@ -79,20 +83,8 @@ export async function createNeonGridApp(mount: NeonGridMount) {
       return
     }
 
-    // If the game is paused (e.g. menu/login/auth screens), do not
-    // advance waves via offline progress. Just refresh the save timestamp.
-    if (game.isPaused()) {
-      const snapshot = game.getSnapshot()
-      saveSnapshot(config, snapshot)
-      return
-    }
-
-    const now = Date.now()
+    // On resume, just refresh the save timestamp; no catch-up simulation.
     const snapshot = game.getSnapshot()
-    const result = applyOfflineProgress({ state: snapshot, nowUTC: now, config })
-    if (result.hasOffline) {
-      game.setPaused(true)
-      ui.showOffline(result)
-    }
+    saveSnapshot(config, snapshot)
   })
 }
