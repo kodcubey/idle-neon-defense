@@ -9,6 +9,8 @@ import {
   calcPaladyumRewardForWave,
   clamp,
   fireRate,
+  towerArmorPierceBonus,
+  towerRepairPctPerSec,
   towerRange,
 } from './deterministic'
 import type { Vec2 } from './path'
@@ -143,6 +145,7 @@ export class SimEngine {
 
     const fr = fireRate(this._state.towerUpgrades.fireRateLevel, this.cfg) * (1 + mods.fireRateBonus)
     const range = towerRange(this._state.towerUpgrades.rangeLevel, this.cfg) + mods.rangeBonus
+    const armorPierce = clamp(mods.armorPierce + towerArmorPierceBonus(this._state, this.cfg), 0, 0.9)
 
     return {
       state: this._state,
@@ -164,7 +167,7 @@ export class SimEngine {
       tower: {
         pos: this.towerPos,
         range,
-        armorPierce: mods.armorPierce,
+        armorPierce,
         damagePerShot,
         fireRate: fr,
       },
@@ -223,6 +226,10 @@ export class SimEngine {
 
     this.waveTimeSec += scaled
     this._state.stats.totalTimeSec += scaled
+
+    // Defense: deterministic self-repair (regen) based on max HP.
+    // Applied continuously while unpaused.
+    this.applyTowerRepair(scaled)
 
     this.spawnEnemiesUpToTime(this.waveTimeSec)
     this.stepEnemies(scaled)
@@ -435,6 +442,17 @@ export class SimEngine {
     const armorEffective = e.armor * (1 - armorPierce)
     const raw = pub.tower.damagePerShot
     return Math.max(1, raw - armorEffective * 10)
+  }
+
+  private applyTowerRepair(dtSec: number) {
+    const pct = towerRepairPctPerSec(this._state, this.cfg)
+    if (pct <= 0) return
+
+    const mods = aggregateModules(this._state, this.cfg)
+    const baseHPLevel = Math.max(1, Math.floor(this._state.towerUpgrades.baseHPLevel))
+    const base = this.cfg.tower.baseHP0 * Math.pow(1 + this.cfg.tower.baseHPGrowth, baseHPLevel - 1)
+    const maxHP = Math.max(1, base + mods.baseHPBonus)
+    this._state.baseHP = clamp(this._state.baseHP + maxHP * pct * dtSec, 0, maxHP)
   }
 
   private finishWave() {

@@ -101,6 +101,47 @@ export const defaultConfig: GameConfig = {
     baseHP0: 170,
     baseHPGrowth: 0.08,
     armorPierce0: 0.0,
+
+    upgrades: {
+      maxLevels: {
+        damage: 250,
+        fireRate: 160,
+        armorPierce: 60,
+        baseHP: 220,
+        fortify: 80,
+        repair: 80,
+        range: 140,
+        gold: 120,
+      },
+
+      costMult: {
+        // Attack
+        damage: 1.0,
+        fireRate: 1.15,
+        armorPierce: 1.35,
+
+        // Defense
+        baseHP: 1.05,
+        fortify: 1.45,
+        repair: 1.55,
+
+        // Utility
+        range: 1.1,
+        gold: 1.25,
+      },
+
+      armorPiercePerLevel: 0.006,
+
+      // Escape damage multiplier = clamp(1 - (L-1)*fortifyPerLevel, fortifyMinMult, 1)
+      fortifyPerLevel: 0.007,
+      fortifyMinMult: 0.55,
+
+      // Base regen per second: maxHP * clamp((L-1)*repairPctPerSecPerLevel, 0, repairMaxPctPerSec)
+      repairPctPerSecPerLevel: 0.00035,
+      repairMaxPctPerSec: 0.012,
+
+      goldMultPerLevel: 0.012,
+    },
   },
 
   economy: {

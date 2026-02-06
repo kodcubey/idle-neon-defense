@@ -1,23 +1,26 @@
 import type { GameConfig, GameState } from '../types'
 import { clamp, aggregateModules } from './deterministic'
-import { moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost } from './costs'
+import { moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from './costs'
 
 export function applyTowerUpgrade(args: {
   state: GameState
   cfg: GameConfig
-  key: 'damage' | 'fireRate' | 'range' | 'baseHP'
+  key: 'damage' | 'fireRate' | 'armorPierce' | 'baseHP' | 'fortify' | 'repair' | 'range' | 'gold'
   amount: 1 | 10 | 'max'
 }): { ok: boolean; state: GameState } {
   const { cfg, key } = args
   const state: GameState = structuredClone(args.state)
 
   const cur = getUpgradeLevel(state, key)
+  const maxL = upgradeMaxLevel(key, cfg)
+  if (cur >= maxL) return { ok: false, state: args.state }
   const growth = cfg.economy.upgradeCostGrowth
 
-  const buyCount = args.amount === 'max' ? maxAffordableUpgrades(cur, state.gold, cfg) : args.amount
+  const buyCountRaw = args.amount === 'max' ? maxAffordableUpgrades(cur, state.gold, cfg, key, maxL) : args.amount
+  const buyCount = Math.min(buyCountRaw, Math.max(0, maxL - cur))
   if (buyCount <= 0) return { ok: false, state: args.state }
 
-  const firstCost = upgradeCost(cur, cfg)
+  const firstCost = upgradeCost(key, cur, cfg)
   // cost for next 'buyCount' levels starting at cur: geometric series from L=cur..cur+buyCount-1
   const cost = firstCost * (1 - Math.pow(growth, buyCount)) / (1 - growth)
   if (state.gold < cost) return { ok: false, state: args.state }
@@ -32,14 +35,15 @@ export function applyTowerUpgrade(args: {
   return { ok: true, state }
 }
 
-function maxAffordableUpgrades(currentLevel: number, gold: number, cfg: GameConfig): number {
+function maxAffordableUpgrades(currentLevel: number, gold: number, cfg: GameConfig, key: Parameters<typeof upgradeMaxLevel>[0], maxL: number): number {
   // Deterministic, bounded search.
   let n = 0
   let g = gold
   let L = Math.max(1, Math.floor(currentLevel))
 
   for (let iter = 0; iter < 10_000; iter++) {
-    const c = upgradeCost(L, cfg)
+    if (L >= maxL) break
+    const c = upgradeCost(key, L, cfg)
     if (g < c) break
     g -= c
     L++
@@ -49,20 +53,35 @@ function maxAffordableUpgrades(currentLevel: number, gold: number, cfg: GameConf
   return n
 }
 
-function getUpgradeLevel(state: GameState, key: 'damage' | 'fireRate' | 'range' | 'baseHP'): number {
+function getUpgradeLevel(
+  state: GameState,
+  key: 'damage' | 'fireRate' | 'armorPierce' | 'baseHP' | 'fortify' | 'repair' | 'range' | 'gold',
+): number {
   switch (key) {
     case 'damage':
       return state.towerUpgrades.damageLevel
     case 'fireRate':
       return state.towerUpgrades.fireRateLevel
+    case 'armorPierce':
+      return (state.towerUpgrades as any).armorPierceLevel
     case 'range':
       return state.towerUpgrades.rangeLevel
     case 'baseHP':
       return state.towerUpgrades.baseHPLevel
+    case 'fortify':
+      return (state.towerUpgrades as any).fortifyLevel
+    case 'repair':
+      return (state.towerUpgrades as any).repairLevel
+    case 'gold':
+      return (state.towerUpgrades as any).goldLevel
   }
 }
 
-function setUpgradeLevel(state: GameState, key: 'damage' | 'fireRate' | 'range' | 'baseHP', level: number) {
+function setUpgradeLevel(
+  state: GameState,
+  key: 'damage' | 'fireRate' | 'armorPierce' | 'baseHP' | 'fortify' | 'repair' | 'range' | 'gold',
+  level: number,
+) {
   const L = Math.max(1, Math.floor(level))
   switch (key) {
     case 'damage':
@@ -71,11 +90,23 @@ function setUpgradeLevel(state: GameState, key: 'damage' | 'fireRate' | 'range' 
     case 'fireRate':
       state.towerUpgrades.fireRateLevel = L
       return
+    case 'armorPierce':
+      ;(state.towerUpgrades as any).armorPierceLevel = L
+      return
     case 'range':
       state.towerUpgrades.rangeLevel = L
       return
     case 'baseHP':
       state.towerUpgrades.baseHPLevel = L
+      return
+    case 'fortify':
+      ;(state.towerUpgrades as any).fortifyLevel = L
+      return
+    case 'repair':
+      ;(state.towerUpgrades as any).repairLevel = L
+      return
+    case 'gold':
+      ;(state.towerUpgrades as any).goldLevel = L
       return
   }
 }

@@ -81,6 +81,34 @@ export function aggregateModules(state: GameState, cfg: GameConfig): ModuleAggre
   }
 }
 
+export function towerArmorPierceBonus(state: GameState, cfg: GameConfig): number {
+  const L = Math.max(1, Math.floor((state.towerUpgrades as any).armorPierceLevel ?? 1))
+  const per = cfg.tower.upgrades.armorPiercePerLevel
+  const bonus = per * (L - 1)
+  return clamp(bonus, 0, 0.9)
+}
+
+export function towerGoldMult(state: GameState, cfg: GameConfig): number {
+  const L = Math.max(1, Math.floor((state.towerUpgrades as any).goldLevel ?? 1))
+  const per = cfg.tower.upgrades.goldMultPerLevel
+  return Math.max(0, 1 + per * (L - 1))
+}
+
+export function towerEscapeDamageMult(state: GameState, cfg: GameConfig): number {
+  const L = Math.max(1, Math.floor((state.towerUpgrades as any).fortifyLevel ?? 1))
+  const per = cfg.tower.upgrades.fortifyPerLevel
+  const min = cfg.tower.upgrades.fortifyMinMult
+  const raw = 1 - per * (L - 1)
+  return clamp(raw, min, 1)
+}
+
+export function towerRepairPctPerSec(state: GameState, cfg: GameConfig): number {
+  const L = Math.max(1, Math.floor((state.towerUpgrades as any).repairLevel ?? 1))
+  const per = cfg.tower.upgrades.repairPctPerSecPerLevel
+  const cap = cfg.tower.upgrades.repairMaxPctPerSec
+  return clamp(per * (L - 1), 0, cap)
+}
+
 export function calcDPS(state: GameState, cfg: GameConfig): number {
   const mods = aggregateModules(state, cfg)
   const dmg =
@@ -267,12 +295,14 @@ export function calcWaveReport(args: {
   const { penaltyFactor, deficit } = calcPenaltyFactor(killRatio, snapshot.threshold, cfg)
 
   const baseGold = calcBaseGold(snapshot.wave, snapshot.totalEHP, cfg)
-  const rewardGold = baseGold * penaltyFactor * aggregateModules(state, cfg).goldMult
+  const rewardGold = baseGold * penaltyFactor * aggregateModules(state, cfg).goldMult * towerGoldMult(state, cfg)
   const rewardPoints = calcPaladyumRewardForWave(state, snapshot.wave, cfg).reward
 
   const baseDamageFromEscapes = cfg.progression.enableEscapeDamage
     ? escaped * cfg.progression.escapeDamage * (1 + cfg.progression.deficitBoost * deficit)
     : 0
+
+  const baseDamageFromEscapesAfterFortify = baseDamageFromEscapes * towerEscapeDamageMult(state, cfg)
 
   return {
     wave: snapshot.wave,
@@ -283,7 +313,7 @@ export function calcWaveReport(args: {
     penaltyFactor,
     rewardGold,
     rewardPoints,
-    baseDamageFromEscapes,
+    baseDamageFromEscapes: baseDamageFromEscapesAfterFortify,
     dpsSnap: snapshot.dpsSnap,
     totalEHP: snapshot.totalEHP,
   }

@@ -48,6 +48,11 @@ export function createNewState(config: GameConfig, nowUTC: number): GameState {
       fireRateLevel: 1,
       rangeLevel: 1,
       baseHPLevel: 1,
+
+      armorPierceLevel: 1,
+      fortifyLevel: 1,
+      repairLevel: 1,
+      goldLevel: 1,
     },
     modulesUnlocked,
     modulesEquipped,
@@ -97,6 +102,11 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
   if (typeof merged.towerUpgrades.fireRateLevel !== 'number') merged.towerUpgrades.fireRateLevel = base.towerUpgrades.fireRateLevel
   if (typeof merged.towerUpgrades.rangeLevel !== 'number') merged.towerUpgrades.rangeLevel = base.towerUpgrades.rangeLevel
   if (typeof merged.towerUpgrades.baseHPLevel !== 'number') merged.towerUpgrades.baseHPLevel = base.towerUpgrades.baseHPLevel
+
+  if (typeof (merged.towerUpgrades as any).armorPierceLevel !== 'number') (merged.towerUpgrades as any).armorPierceLevel = (base.towerUpgrades as any).armorPierceLevel
+  if (typeof (merged.towerUpgrades as any).fortifyLevel !== 'number') (merged.towerUpgrades as any).fortifyLevel = (base.towerUpgrades as any).fortifyLevel
+  if (typeof (merged.towerUpgrades as any).repairLevel !== 'number') (merged.towerUpgrades as any).repairLevel = (base.towerUpgrades as any).repairLevel
+  if (typeof (merged.towerUpgrades as any).goldLevel !== 'number') (merged.towerUpgrades as any).goldLevel = (base.towerUpgrades as any).goldLevel
 
   // Ensure module maps contain all defs.
   for (const def of config.modules.defs) {

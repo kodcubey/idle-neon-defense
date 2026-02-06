@@ -1,10 +1,19 @@
-import type { GameConfig } from '../types'
+import type { GameConfig, TowerUpgradeKey } from '../types'
 
-export type UpgradeKey = 'damage' | 'fireRate' | 'range' | 'baseHP'
+export type UpgradeKey = TowerUpgradeKey
 
-export function upgradeCost(level: number, cfg: GameConfig): number {
+export function upgradeMaxLevel(key: UpgradeKey, cfg: GameConfig): number {
+  const m = cfg.tower.upgrades.maxLevels?.[key]
+  return typeof m === 'number' && Number.isFinite(m) ? Math.max(1, Math.floor(m)) : Number.POSITIVE_INFINITY
+}
+
+// Cost for buying the *next* level when current level is `level`.
+// Deterministic geometric growth is preserved; only a per-track multiplier is applied.
+export function upgradeCost(key: UpgradeKey, level: number, cfg: GameConfig): number {
   const L = Math.max(1, Math.floor(level))
-  return cfg.economy.upgradeCostBase * Math.pow(cfg.economy.upgradeCostGrowth, L - 1)
+  const multRaw = cfg.tower.upgrades.costMult?.[key]
+  const mult = typeof multRaw === 'number' && Number.isFinite(multRaw) ? Math.max(0, multRaw) : 1
+  return mult * cfg.economy.upgradeCostBase * Math.pow(cfg.economy.upgradeCostGrowth, L - 1)
 }
 
 export function moduleUnlockCostPoints(unlocksSoFar: number, cfg: GameConfig): number {

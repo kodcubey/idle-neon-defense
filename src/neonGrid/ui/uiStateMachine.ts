@@ -6,7 +6,7 @@ import { createNewState } from '../persistence/save'
 import { btn, clear, el, hr, kv } from './dom'
 import { formatNumber, formatPaladyum, formatPaladyumInt, formatPct, formatTimeMMSS } from './format'
 import { calcPenaltyFactor, calcWaveSnapshot, clamp, calcDPS } from '../sim/deterministic'
-import { moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost } from '../sim/costs'
+import { moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from '../sim/costs'
 
 export type UIScreen = 'boot' | 'menu' | 'login' | 'hud' | 'modules' | 'prestige' | 'settings' | 'stats' | 'offline'
 
@@ -852,10 +852,19 @@ export function createUIStateMachine(args: UIArgs) {
       const uh = el('div', 'panel-header')
       uh.textContent = 'Upgrades'
       const ub = el('div', 'panel-body')
+      ub.appendChild(renderUpgradeSection('Attack'))
       ub.appendChild(renderUpgradeRow('Damage', 'damage', state.towerUpgrades.damageLevel))
       ub.appendChild(renderUpgradeRow('Fire Rate', 'fireRate', state.towerUpgrades.fireRateLevel))
-      ub.appendChild(renderUpgradeRow('Range', 'range', state.towerUpgrades.rangeLevel))
+      ub.appendChild(renderUpgradeRow('Armor Piercing', 'armorPierce', (state.towerUpgrades as any).armorPierceLevel))
+
+      ub.appendChild(renderUpgradeSection('Defense'))
       ub.appendChild(renderUpgradeRow('Base HP', 'baseHP', state.towerUpgrades.baseHPLevel))
+      ub.appendChild(renderUpgradeRow('Fortify (Escape DR)', 'fortify', (state.towerUpgrades as any).fortifyLevel))
+      ub.appendChild(renderUpgradeRow('Repair (Regen)', 'repair', (state.towerUpgrades as any).repairLevel))
+
+      ub.appendChild(renderUpgradeSection('Utility'))
+      ub.appendChild(renderUpgradeRow('Range', 'range', state.towerUpgrades.rangeLevel))
+      ub.appendChild(renderUpgradeRow('Gold Finder', 'gold', (state.towerUpgrades as any).goldLevel))
 
       const liveTitle = el('div')
       liveTitle.textContent = 'Live'
@@ -886,7 +895,19 @@ export function createUIStateMachine(args: UIArgs) {
     }
   }
 
-  function renderUpgradeRow(label: string, key: 'damage' | 'fireRate' | 'range' | 'baseHP', level: number): HTMLElement {
+  function renderUpgradeSection(title: string): HTMLElement {
+    const box = el('div', 'muted')
+    box.style.marginTop = '6px'
+    box.style.fontWeight = '800'
+    box.textContent = title
+    return box
+  }
+
+  function renderUpgradeRow(
+    label: string,
+    key: 'damage' | 'fireRate' | 'armorPierce' | 'baseHP' | 'fortify' | 'repair' | 'range' | 'gold',
+    level: number,
+  ): HTMLElement {
     const box = el('div')
     box.style.display = 'grid'
     box.style.gridTemplateColumns = '1fr auto'
@@ -895,13 +916,21 @@ export function createUIStateMachine(args: UIArgs) {
     box.style.marginBottom = '10px'
 
     const left = el('div')
-    const nextCost = formatNumber(upgradeCost(level, config), lastState?.settings.numberFormat ?? 'suffix')
-    left.innerHTML = `<div style="font-weight:800">${label}</div><div class="muted mono">Lv ${level} • Next:</div><div class="mono" style="font-weight:800">${nextCost}</div>`
+    const maxL = upgradeMaxLevel(key, config)
+    const atMax = level >= maxL
+    const nextCost = atMax ? 'MAX' : formatNumber(upgradeCost(key, level, config), lastState?.settings.numberFormat ?? 'suffix')
+    left.innerHTML = `<div style="font-weight:800">${label}</div><div class="muted mono">Lv ${level}${Number.isFinite(maxL) ? ` / ${maxL}` : ''} • Next:</div><div class="mono" style="font-weight:800">${nextCost}</div>`
 
     const controls = el('div', 'stack')
     const b1 = btn('+1', 'btn')
     const b10 = btn('+10', 'btn')
     const bM = btn('+Max', 'btn')
+
+    if (atMax) {
+      b1.disabled = true
+      b10.disabled = true
+      bM.disabled = true
+    }
 
     b1.onclick = () => {
       if (!game) {
@@ -1258,10 +1287,19 @@ export function createUIStateMachine(args: UIArgs) {
     h.append(title, close)
 
     const b = el('div', 'panel-body')
+    b.appendChild(renderUpgradeSection('Attack'))
     b.appendChild(renderUpgradeRow('Damage', 'damage', lastState.towerUpgrades.damageLevel))
     b.appendChild(renderUpgradeRow('Fire Rate', 'fireRate', lastState.towerUpgrades.fireRateLevel))
-    b.appendChild(renderUpgradeRow('Range', 'range', lastState.towerUpgrades.rangeLevel))
+    b.appendChild(renderUpgradeRow('Armor Piercing', 'armorPierce', (lastState.towerUpgrades as any).armorPierceLevel))
+
+    b.appendChild(renderUpgradeSection('Defense'))
     b.appendChild(renderUpgradeRow('Base HP', 'baseHP', lastState.towerUpgrades.baseHPLevel))
+    b.appendChild(renderUpgradeRow('Fortify (Escape DR)', 'fortify', (lastState.towerUpgrades as any).fortifyLevel))
+    b.appendChild(renderUpgradeRow('Repair (Regen)', 'repair', (lastState.towerUpgrades as any).repairLevel))
+
+    b.appendChild(renderUpgradeSection('Utility'))
+    b.appendChild(renderUpgradeRow('Range', 'range', lastState.towerUpgrades.rangeLevel))
+    b.appendChild(renderUpgradeRow('Gold Finder', 'gold', (lastState.towerUpgrades as any).goldLevel))
 
     modal.append(h, b)
 

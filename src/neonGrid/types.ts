@@ -11,6 +11,8 @@ export type Settings = {
 
 export type ModuleCategory = 'OFFENSE' | 'DEFENSE' | 'UTILITY'
 
+export type TowerUpgradeKey = 'damage' | 'fireRate' | 'armorPierce' | 'baseHP' | 'fortify' | 'repair' | 'range' | 'gold'
+
 export type ModuleDef = {
   id: string
   nameTR: string
@@ -141,6 +143,25 @@ export type GameConfig = {
     baseHP0: number
     baseHPGrowth: number
     armorPierce0: number
+
+    upgrades: {
+      // Hard caps for tower upgrades. Level is integer and starts at 1.
+      // When current level reaches max, further upgrades are disabled.
+      maxLevels: Record<TowerUpgradeKey, number>
+
+      // Cost multiplier per upgrade track; applied on top of economy.upgradeCostBase.
+      costMult: Record<TowerUpgradeKey, number>
+
+      // Upgrade effects (all deterministic; tuned via config)
+      armorPiercePerLevel: number
+      fortifyPerLevel: number
+      fortifyMinMult: number
+
+      repairPctPerSecPerLevel: number
+      repairMaxPctPerSec: number
+
+      goldMultPerLevel: number
+    }
   }
 
   economy: {
@@ -186,6 +207,11 @@ export type GameState = {
     fireRateLevel: number
     rangeLevel: number
     baseHPLevel: number
+
+    armorPierceLevel: number
+    fortifyLevel: number
+    repairLevel: number
+    goldLevel: number
   }
 
   modulesUnlocked: Record<string, boolean>
