@@ -610,7 +610,13 @@ export function createUIStateMachine(args: UIArgs) {
       showMetaUpgradesModal()
     }
 
-    row.append(cont, newRun, metaUpg, modules, stats, settings, credits)
+    const shop = btn('Store', 'btn btn-store')
+    shop.onclick = () => {
+      if (game) game.setPaused(true)
+      showShopModal()
+    }
+
+    row.append(cont, newRun, metaUpg, shop, modules, stats, settings, credits)
 
     const card = el('div', 'panel')
     card.style.marginTop = '12px'
@@ -878,6 +884,106 @@ export function createUIStateMachine(args: UIArgs) {
     } else {
       b.append(renderMetaRow('Range', 'range'))
       b.append(renderMetaRow('Gold Finder', 'gold'))
+    }
+
+    modal.append(h, b)
+
+    overlay.addEventListener('pointerdown', (e) => {
+      if (e.target === overlay) overlay.remove()
+    })
+  }
+
+  function showShopModal() {
+    const modal = el('div', 'panel')
+    modal.style.width = 'min(760px, calc(100vw - 20px))'
+    modal.style.pointerEvents = 'auto'
+
+    const h = el('div', 'panel-header')
+    const title = el('div')
+    title.textContent = 'Store'
+    const close = btn('Close', 'btn')
+    const overlay = mountModal(modal)
+    close.onclick = () => overlay.remove()
+    h.append(title, close)
+
+    const b = el('div', 'panel-body')
+
+    const note = el('div', 'muted')
+    note.innerHTML = 'Note: This store is in <span class="mono">test</span> mode — no real payments; the buy button adds Palladium.'
+    note.style.marginBottom = '10px'
+
+    const bal = el('div', 'muted')
+    bal.style.marginBottom = '10px'
+    const pal = lastState?.points ?? 0
+    bal.innerHTML = `Palladium: <span class="mono">${formatPaladyumInt(pal)}</span>`
+
+    const fmtPrice = (price: number, currency: string) => {
+      try {
+        return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(price)
+      } catch {
+        return `${price.toFixed(2)} ${currency}`
+      }
+    }
+
+    const pkgs = config.shop?.packages ?? []
+    if (pkgs.length === 0) {
+      const empty = el('div', 'muted')
+      empty.textContent = 'No store packages configured.'
+      b.append(note, bal, empty)
+    } else {
+      b.append(note, bal)
+      for (const pkg of pkgs) {
+        const card = el('div', 'panel')
+        card.style.marginBottom = '10px'
+
+        const ch = el('div', 'panel-header')
+        const left = el('div')
+        left.textContent = pkg.name
+        const right = el('div', 'mono muted')
+        right.textContent = fmtPrice(pkg.price, pkg.currency)
+        ch.append(left, right)
+
+        const cb = el('div', 'panel-body')
+
+        const desc = el('div', 'muted')
+        desc.textContent = pkg.desc
+        desc.style.marginBottom = '8px'
+
+        const row = el('div')
+        row.style.display = 'flex'
+        row.style.alignItems = 'center'
+        row.style.justifyContent = 'space-between'
+        row.style.gap = '10px'
+
+        const info = el('div')
+        info.append(kv('Palladium', formatPaladyumInt(pkg.paladyum), true))
+
+        const actions = el('div', 'stack')
+        actions.style.justifyContent = 'flex-end'
+        const buy = btn('Buy (Test)', 'btn btn-primary')
+        buy.onclick = () => {
+          if (!game) {
+            flashFail(buy)
+            return
+          }
+
+          const s = game.getSnapshot()
+          const next = { ...s, points: (s.points ?? 0) + Math.max(0, Math.floor(pkg.paladyum)) }
+          game.setSnapshot(next, 'soft')
+          lastState = game.getSnapshot()
+
+          overlay.remove()
+          render()
+          alert(`Test purchase successful: +${formatPaladyumInt(pkg.paladyum)} Palladium`)
+        }
+
+        actions.append(buy)
+        row.append(info, actions)
+
+        cb.append(desc, row)
+        card.append(ch, cb)
+        b.appendChild(card)
+      }
     }
 
     modal.append(h, b)
@@ -1584,8 +1690,10 @@ export function createUIStateMachine(args: UIArgs) {
       card.draggable = false
       card.ondragstart = null
       const ch = el('div', 'panel-header')
-      const name = el('div')
-      name.textContent = def.nameTR
+      const name = el('div', 'ng-mod-name')
+      const label = el('div')
+      label.textContent = def.nameTR
+      name.append(moduleIcon(def), label)
 
       const cat = el('div', 'muted mono')
       cat.textContent = def.category
@@ -1749,6 +1857,24 @@ export function createUIStateMachine(args: UIArgs) {
     if (typeof def.maxEffectiveLevel === 'number') parts.push(`Balance cap: effective Lv ≤ ${Math.max(0, Math.floor(def.maxEffectiveLevel))}`)
 
     return parts.length ? parts.join(' • ') : 'Effect: (not defined)'
+  }
+
+  function moduleIcon(def: GameConfig['modules']['defs'][number]): HTMLSpanElement {
+    const icon = el('span', 'ng-mod-icon')
+    if (def.category === 'OFFENSE') {
+      icon.classList.add('ng-mod-icon-offense')
+      icon.textContent = '▲'
+    } else if (def.category === 'DEFENSE') {
+      icon.classList.add('ng-mod-icon-defense')
+      icon.textContent = '■'
+    } else {
+      icon.classList.add('ng-mod-icon-utility')
+      icon.textContent = '◆'
+    }
+
+    const concept = (def as any).iconConcept
+    icon.title = concept ? `${def.category}: ${String(concept)}` : def.category
+    return icon
   }
 
   function renderSettings() {

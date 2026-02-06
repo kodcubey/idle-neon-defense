@@ -242,6 +242,16 @@ input:focus {
   border-color: var(--neon-magenta);
 }
 
+.btn-store {
+  border-color: color-mix(in srgb, var(--neon-lime) 70%, var(--stroke-strong));
+  background: color-mix(in srgb, rgba(14, 18, 38, 0.5) 78%, var(--neon-lime) 22%);
+}
+
+.btn-store:hover {
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--neon-lime) 28%, transparent));
+  border-color: var(--neon-lime);
+}
+
 .btn-danger {
   border-color: color-mix(in srgb, var(--danger) 75%, transparent);
   background: color-mix(in srgb, rgba(14, 18, 38, 0.5) 80%, var(--danger) 20%);
@@ -258,6 +268,45 @@ input:focus {
 
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.ng-mod-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ng-mod-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 900;
+  border: 1px solid var(--stroke-strong);
+  background: rgba(14, 18, 38, 0.35);
+}
+
+.ng-mod-icon-offense {
+  color: var(--neon-magenta);
+  border-color: color-mix(in srgb, var(--neon-magenta) 60%, var(--stroke-strong));
+  background: color-mix(in srgb, rgba(14, 18, 38, 0.35) 78%, var(--neon-magenta) 22%);
+}
+
+.ng-mod-icon-defense {
+  color: var(--neon-cyan);
+  border-color: color-mix(in srgb, var(--neon-cyan) 60%, var(--stroke-strong));
+  background: color-mix(in srgb, rgba(14, 18, 38, 0.35) 78%, var(--neon-cyan) 22%);
+}
+
+.ng-mod-icon-utility {
+  color: var(--neon-lime);
+  border-color: color-mix(in srgb, var(--neon-lime) 60%, var(--stroke-strong));
+  background: color-mix(in srgb, rgba(14, 18, 38, 0.35) 78%, var(--neon-lime) 22%);
 }
 
 .hud-top {

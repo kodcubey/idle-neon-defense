@@ -22,6 +22,43 @@ export const defaultConfig: GameConfig = {
     ],
   },
 
+  shop: {
+    packages: [
+      {
+        id: 'USD_STARTER',
+        name: 'Starter Pack',
+        desc: 'Palladium for meta upgrades. Great for new accounts.',
+        paladyum: 120,
+        price: 1.99,
+        currency: 'USD',
+      },
+      {
+        id: 'USD_CORE',
+        name: 'Core Pack',
+        desc: 'Accelerates early game: meta upgrades + module slots.',
+        paladyum: 350,
+        price: 4.99,
+        currency: 'USD',
+      },
+      {
+        id: 'USD_NEON',
+        name: 'Neon Pack',
+        desc: 'A strong mid-game boost.',
+        paladyum: 800,
+        price: 9.99,
+        currency: 'USD',
+      },
+      {
+        id: 'USD_OVERDRIVE',
+        name: 'Overdrive Pack',
+        desc: 'A large long-term progression pack.',
+        paladyum: 1800,
+        price: 19.99,
+        currency: 'USD',
+      },
+    ],
+  },
+
   sim: {
     tickHz: 60,
     waveDurationSec: 30.0,
