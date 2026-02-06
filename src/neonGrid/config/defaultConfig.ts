@@ -33,10 +33,10 @@ export const defaultConfig: GameConfig = {
     clearFactorRho: 0.72,
 
     d0: 8,
-    dmgGrowthD: 0.095,
-    r0: 1.1,
-    rMax: 8.0,
-    fireRateLogK: 0.55,
+    dmgGrowthD: 0.078,
+    r0: 1.05,
+    rMax: 7.0,
+    fireRateLogK: 0.45,
 
     prestigeMu: 0.06,
 
@@ -75,14 +75,15 @@ export const defaultConfig: GameConfig = {
     thMin: 0.56,
     thMax: 0.92,
 
-    penK: 0.9,
-    penMin: 0.4,
+    penK: 0.95,
+    penMin: 0.5,
 
-    g0: 0.55,
-    gamma: 0.72,
-    goldWaveK: 0.18,
-    p0: 1,
-    pointsGrowthPer10: 1.18,
+    g0: 0.5,
+    gamma: 0.68,
+    goldWaveK: 0.16,
+    // Paladyum baseline per-wave reward (tiered by 10 waves).
+    p0: 5,
+    pointsGrowthPer10: 1.22,
     paladyumDropRate: 0.01,
 
     enableEscapeDamage: true,
@@ -106,8 +107,11 @@ export const defaultConfig: GameConfig = {
       maxLevels: {
         damage: 250,
         fireRate: 160,
+        crit: 80,
+        multiShot: 4,
         armorPierce: 60,
         baseHP: 220,
+        slow: 60,
         fortify: 80,
         repair: 80,
         range: 20,
@@ -118,10 +122,13 @@ export const defaultConfig: GameConfig = {
         // Attack
         damage: 1.0,
         fireRate: 1.15,
+        crit: 1.3,
+        multiShot: 2.0,
         armorPierce: 1.35,
 
         // Defense
         baseHP: 1.05,
+        slow: 1.25,
         fortify: 1.45,
         repair: 1.55,
 
@@ -141,19 +148,31 @@ export const defaultConfig: GameConfig = {
       repairMaxPctPerSec: 0.012,
 
       goldMultPerLevel: 0.012,
+
+      // Crit (deterministic): at level 1 => disabled; effects scale with (L-1).
+      // everyN = clamp(base - (L-1)*reduce, min, base)
+      // mult  = 1 + (L-1)*critMultPerLevel
+      critEveryNBase: 12,
+      critEveryNMin: 4,
+      critEveryNReducePerLevel: 0.08,
+      critMultPerLevel: 0.04,
+
+      // Slow: enemy speed multiplier = clamp(1 - (L-1)*slowPerLevel, slowMinMult, 1)
+      slowPerLevel: 0.006,
+      slowMinMult: 0.7,
     },
   },
 
   economy: {
-    upgradeCostBase: 1,
-    upgradeCostGrowth: 1.13,
-    moduleUnlockPointCostBase: 25,
-    moduleUnlockPointCostGrowth: 1.35,
-    moduleUpgradeGoldBase: 80,
-    moduleUpgradeGoldGrowth: 1.22,
+    upgradeCostBase: 12,
+    upgradeCostGrowth: 1.17,
+    moduleUnlockPointCostBase: 22,
+    moduleUnlockPointCostGrowth: 1.38,
+    moduleUpgradeGoldBase: 12,
+    moduleUpgradeGoldGrowth: 1.18,
 
-    moduleSlotUnlockPointCostBase: 60,
-    moduleSlotUnlockPointCostGrowth: 2.1,
+    moduleSlotUnlockPointCostBase: 50,
+    moduleSlotUnlockPointCostGrowth: 1.85,
   },
 
   enemies: {
@@ -169,6 +188,7 @@ export const defaultConfig: GameConfig = {
 
   modules: {
     slotCount: 5,
+    levelExponent: 0.82,
     defs: [
       // OFFENSE — strong damage, clear downsides.
       {
@@ -228,6 +248,8 @@ export const defaultConfig: GameConfig = {
         iconConcept: 'glass core',
         maxEffectiveLevel: 16,
         dmgMultPerLevel: 0.04,
+        critEveryN: 6,
+        critMultPerLevel: 0.22,
         baseHPMultPerLevel: -0.03,
       },
 
@@ -249,6 +271,7 @@ export const defaultConfig: GameConfig = {
         maxEffectiveLevel: 18,
         baseHPMultPerLevel: 0.02,
         fireRateBonusPerLevel: -0.02,
+        enemySpeedMultPerLevel: -0.01,
       },
       {
         id: 'DF_REPAIR_WEAVE',

@@ -44,6 +44,11 @@ export type ModuleAggregate = {
   shotCount: number
   invulnDurationSec: number
   invulnCooldownSec: number
+
+  critEveryN: number
+  critMult: number
+
+  enemySpeedMult: number
 }
 
 export function aggregateModules(state: GameState, cfg: GameConfig): ModuleAggregate {
@@ -63,6 +68,11 @@ export function aggregateModules(state: GameState, cfg: GameConfig): ModuleAggre
   let invulnDurationSec = 0
   let invulnCooldownSec = 0
 
+  let critEveryN = Number.POSITIVE_INFINITY
+  let critMult = 1
+
+  let enemySpeedMult = 1
+
   const maxSlots = Math.max(1, Math.floor(cfg.modules.slotCount))
   const unlockedSlots = Math.max(1, Math.floor(state.moduleSlotsUnlocked ?? 1))
   const activeSlots = Math.min(maxSlots, unlockedSlots)
@@ -80,25 +90,42 @@ export function aggregateModules(state: GameState, cfg: GameConfig): ModuleAggre
     const level = Math.min(rawLevel, levelCap)
     if (level <= 0) continue
 
-    if (def.dmgMultPerLevel) dmgMult *= 1 + def.dmgMultPerLevel * level
-    if (def.dmgFlatPerLevel) dmgFlat += def.dmgFlatPerLevel * level
-    if (def.fireRateBonusPerLevel) fireRateBonus += def.fireRateBonusPerLevel * level
-    if (def.rangeBonusPerLevel) rangeBonus += def.rangeBonusPerLevel * level
-    if (def.armorPiercePerLevel) armorPierce += def.armorPiercePerLevel * level
-    if (def.baseHPBonusPerLevel) baseHPBonus += def.baseHPBonusPerLevel * level
-    if (def.goldMultPerLevel) goldMult *= 1 + def.goldMultPerLevel * level
+    const expRaw = (cfg.modules as any).levelExponent
+    const exp = typeof expRaw === 'number' && Number.isFinite(expRaw) ? clamp(expRaw, 0.35, 1.0) : 1.0
+    const effLevel = Math.max(0, Math.pow(level, exp))
 
-    if (def.baseHPMultPerLevel) baseHPMult *= 1 + def.baseHPMultPerLevel * level
+    if (def.dmgMultPerLevel) dmgMult *= 1 + def.dmgMultPerLevel * effLevel
+    if (def.dmgFlatPerLevel) dmgFlat += def.dmgFlatPerLevel * effLevel
+    if (def.fireRateBonusPerLevel) fireRateBonus += def.fireRateBonusPerLevel * effLevel
+    if (def.rangeBonusPerLevel) rangeBonus += def.rangeBonusPerLevel * effLevel
+    if (def.armorPiercePerLevel) armorPierce += def.armorPiercePerLevel * effLevel
+    if (def.baseHPBonusPerLevel) baseHPBonus += def.baseHPBonusPerLevel * effLevel
+    if (def.goldMultPerLevel) goldMult *= 1 + def.goldMultPerLevel * effLevel
+
+    if (def.baseHPMultPerLevel) baseHPMult *= 1 + def.baseHPMultPerLevel * effLevel
 
     if (def.shotCountPerLevel) {
       const cap = typeof def.shotCountCap === 'number' && Number.isFinite(def.shotCountCap) ? Math.max(1, Math.floor(def.shotCountCap)) : Number.POSITIVE_INFINITY
-      const add = Math.floor(def.shotCountPerLevel * level)
+      const add = Math.floor(def.shotCountPerLevel * effLevel)
       shotCount = Math.min(cap, Math.max(1, shotCount + Math.max(0, add)))
     }
 
     if (def.invulnDurationSecPerLevel && def.invulnCooldownSec) {
-      invulnDurationSec = Math.max(invulnDurationSec, Math.max(0, def.invulnDurationSecPerLevel * level))
+      invulnDurationSec = Math.max(invulnDurationSec, Math.max(0, def.invulnDurationSecPerLevel * effLevel))
       invulnCooldownSec = Math.max(invulnCooldownSec, Math.max(0.1, def.invulnCooldownSec))
+    }
+
+    if (def.critEveryN && def.critMultPerLevel) {
+      const n = Math.max(2, Math.floor(def.critEveryN))
+      const m = 1 + Math.max(0, def.critMultPerLevel * effLevel)
+      if (m > 1.000001) {
+        critEveryN = Math.min(critEveryN, n)
+        critMult = Math.max(critMult, m)
+      }
+    }
+
+    if (def.enemySpeedMultPerLevel) {
+      enemySpeedMult *= 1 + def.enemySpeedMultPerLevel * effLevel
     }
   }
 
@@ -115,7 +142,58 @@ export function aggregateModules(state: GameState, cfg: GameConfig): ModuleAggre
     shotCount: clamp(Math.floor(shotCount), 1, 8),
     invulnDurationSec,
     invulnCooldownSec,
+
+    critEveryN,
+    critMult,
+
+    enemySpeedMult: clamp(enemySpeedMult, 0.25, 2.0),
   }
+}
+
+export function towerMultiShotCount(state: GameState, cfg: GameConfig): number {
+  const L = Math.max(1, Math.floor((state.towerUpgrades as any).multiShotLevel ?? 1))
+  const max = Math.max(1, Math.floor(cfg.tower.upgrades.maxLevels.multiShot ?? 4))
+  return clamp(L, 1, max)
+}
+
+export function towerEnemySpeedMult(state: GameState, cfg: GameConfig): number {
+  const L = Math.max(1, Math.floor((state.towerUpgrades as any).slowLevel ?? 1))
+  const eff = Math.max(0, L - 1)
+  const raw = 1 - cfg.tower.upgrades.slowPerLevel * eff
+  return clamp(raw, cfg.tower.upgrades.slowMinMult, 1)
+}
+
+export function effectiveEnemySpeedMult(state: GameState, cfg: GameConfig, mods?: ModuleAggregate): number {
+  const m = mods ?? aggregateModules(state, cfg)
+  return clamp(towerEnemySpeedMult(state, cfg) * m.enemySpeedMult, 0.25, 1)
+}
+
+export function effectiveCritParams(state: GameState, cfg: GameConfig, mods?: ModuleAggregate): { everyN: number; mult: number } {
+  const m = mods ?? aggregateModules(state, cfg)
+
+  const L = Math.max(1, Math.floor((state.towerUpgrades as any).critLevel ?? 1))
+  const eff = Math.max(0, L - 1)
+
+  let towerEveryN = Number.POSITIVE_INFINITY
+  let towerMult = 1
+  if (eff > 0) {
+    const rawN = cfg.tower.upgrades.critEveryNBase - cfg.tower.upgrades.critEveryNReducePerLevel * eff
+    towerEveryN = clamp(Math.floor(rawN), cfg.tower.upgrades.critEveryNMin, cfg.tower.upgrades.critEveryNBase)
+    towerMult = 1 + cfg.tower.upgrades.critMultPerLevel * eff
+  }
+
+  const everyN = Math.min(towerEveryN, m.critEveryN)
+  const mult = Math.max(towerMult, m.critMult)
+  if (!Number.isFinite(everyN) || everyN <= 0) return { everyN: Number.POSITIVE_INFINITY, mult: 1 }
+  if (!(mult > 1.000001)) return { everyN: Number.POSITIVE_INFINITY, mult: 1 }
+  return { everyN, mult }
+}
+
+export function critAverageDamageMult(state: GameState, cfg: GameConfig, mods?: ModuleAggregate): number {
+  const { everyN, mult } = effectiveCritParams(state, cfg, mods)
+  if (!Number.isFinite(everyN) || everyN === Number.POSITIVE_INFINITY) return 1
+  // One crit every N shots => average multiplier.
+  return 1 + (mult - 1) / Math.max(1, everyN)
 }
 
 export function towerArmorPierceBonus(state: GameState, cfg: GameConfig): number {
@@ -148,8 +226,10 @@ export function towerRepairPctPerSec(state: GameState, cfg: GameConfig): number 
 
 export function calcDPS(state: GameState, cfg: GameConfig): number {
   const mods = aggregateModules(state, cfg)
+  const critAvg = critAverageDamageMult(state, cfg, mods)
   const dmg =
     (baseDmg(state.towerUpgrades.damageLevel, cfg) * mods.dmgMult + mods.dmgFlat) *
+    critAvg *
     calcPrestigeMult(state.prestigePoints, cfg)
   const rate = fireRate(state.towerUpgrades.fireRateLevel, cfg) * (1 + mods.fireRateBonus)
   return Math.max(0, dmg * rate)
@@ -281,27 +361,21 @@ export function calcPointsReward(wave: number, cfg: GameConfig): number {
 }
 
 export function calcPaladyumRewardForWave(state: GameState, wave: number, cfg: GameConfig): { reward: number; nextCarry: number } {
-  // New Paladyum system:
-  // - Always reward every wave.
-  // - Logarithmic growth with wave.
-  // - Starts at 0.0 at waveIndex=0 (i.e., wave 1 in-game).
-  // - Caps at 0.001 at/after waveIndex=100 (roughly wave 101).
-  // The shape exponent keeps early-wave gains extremely small.
+  // Paladyum (meta currency) reward:
+  // - Deterministic, every wave.
+  // - Tiered growth per 10 waves (smooth via carry so UI feels continuous).
 
-  void state
-  void cfg
+  const w = Math.max(1, Math.floor(wave))
+  const tier = Math.floor((w - 1) / 10)
 
-  const MIN = 0.0
-  const MAX = 0.001
-  const CAP_WAVE_INDEX = 100
-  const SHAPE = 4
+  const basePerWave = Math.max(0, cfg.progression.p0 * Math.pow(cfg.progression.pointsGrowthPer10, tier))
+  const carry = typeof (state as any).paladyumCarry === 'number' && Number.isFinite((state as any).paladyumCarry) ? (state as any).paladyumCarry : 0
 
-  const waveIndex = Math.max(0, Math.floor(wave) - 1)
-  const x = Math.min(CAP_WAVE_INDEX, waveIndex)
-  const t0 = CAP_WAVE_INDEX <= 0 ? 1 : Math.log1p(x) / Math.log1p(CAP_WAVE_INDEX)
-  const t = Math.pow(Math.max(0, Math.min(1, t0)), SHAPE)
-  const reward = MIN + (MAX - MIN) * t
-  return { reward, nextCarry: 0 }
+  const total = Math.max(0, basePerWave + carry)
+  const reward = Math.floor(total)
+  const nextCarry = clamp(total - reward, 0, 0.999999)
+
+  return { reward, nextCarry }
 }
 
 export function calcWaveSnapshot(state: GameState, cfg: GameConfig): WaveSnapshot {

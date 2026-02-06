@@ -1,11 +1,11 @@
-import type { GameConfig, GameState } from '../types'
+import type { GameConfig, GameState, TowerUpgradeKey } from '../types'
 import { clamp, aggregateModules } from './deterministic'
 import { moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from './costs'
 
 export function applyTowerUpgrade(args: {
   state: GameState
   cfg: GameConfig
-  key: 'damage' | 'fireRate' | 'armorPierce' | 'baseHP' | 'fortify' | 'repair' | 'range' | 'gold'
+  key: TowerUpgradeKey
   amount: 1 | 10 | 'max'
 }): { ok: boolean; state: GameState } {
   const { cfg, key } = args
@@ -55,19 +55,25 @@ function maxAffordableUpgrades(currentLevel: number, gold: number, cfg: GameConf
 
 function getUpgradeLevel(
   state: GameState,
-  key: 'damage' | 'fireRate' | 'armorPierce' | 'baseHP' | 'fortify' | 'repair' | 'range' | 'gold',
+  key: TowerUpgradeKey,
 ): number {
   switch (key) {
     case 'damage':
       return state.towerUpgrades.damageLevel
     case 'fireRate':
       return state.towerUpgrades.fireRateLevel
+    case 'crit':
+      return (state.towerUpgrades as any).critLevel
+    case 'multiShot':
+      return (state.towerUpgrades as any).multiShotLevel
     case 'armorPierce':
       return (state.towerUpgrades as any).armorPierceLevel
     case 'range':
       return state.towerUpgrades.rangeLevel
     case 'baseHP':
       return state.towerUpgrades.baseHPLevel
+    case 'slow':
+      return (state.towerUpgrades as any).slowLevel
     case 'fortify':
       return (state.towerUpgrades as any).fortifyLevel
     case 'repair':
@@ -79,7 +85,7 @@ function getUpgradeLevel(
 
 function setUpgradeLevel(
   state: GameState,
-  key: 'damage' | 'fireRate' | 'armorPierce' | 'baseHP' | 'fortify' | 'repair' | 'range' | 'gold',
+  key: TowerUpgradeKey,
   level: number,
 ) {
   const L = Math.max(1, Math.floor(level))
@@ -90,6 +96,12 @@ function setUpgradeLevel(
     case 'fireRate':
       state.towerUpgrades.fireRateLevel = L
       return
+    case 'crit':
+      ;(state.towerUpgrades as any).critLevel = L
+      return
+    case 'multiShot':
+      ;(state.towerUpgrades as any).multiShotLevel = L
+      return
     case 'armorPierce':
       ;(state.towerUpgrades as any).armorPierceLevel = L
       return
@@ -98,6 +110,9 @@ function setUpgradeLevel(
       return
     case 'baseHP':
       state.towerUpgrades.baseHPLevel = L
+      return
+    case 'slow':
+      ;(state.towerUpgrades as any).slowLevel = L
       return
     case 'fortify':
       ;(state.towerUpgrades as any).fortifyLevel = L

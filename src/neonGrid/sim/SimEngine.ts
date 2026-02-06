@@ -9,7 +9,10 @@ import {
   calcWaveSnapshot,
   calcPaladyumRewardForWave,
   clamp,
+  effectiveCritParams,
+  effectiveEnemySpeedMult,
   fireRate,
+  towerMultiShotCount,
   towerArmorPierceBonus,
   towerEscapeDamageMult,
   towerRepairPctPerSec,
@@ -40,6 +43,7 @@ export type ProjectileEntity = {
   y: number
   speed: number
   targetEnemyId: number
+  damageMult: number
   alive: boolean
 }
 
@@ -116,6 +120,7 @@ export class SimEngine {
 
   private towerPos: Vec2 = { x: 0, y: 0 }
   private towerCooldown = 0
+  private towerShotCounter = 0
 
   private invulnRemainingSec = 0
   private invulnCooldownRemainingSec = 0
@@ -430,11 +435,12 @@ export class SimEngine {
   }
 
   private stepEnemies(dtSec: number) {
+    const speedMult = effectiveEnemySpeedMult(this._state, this.cfg)
     for (const e of this.enemies) {
       if (!e.alive) continue
 
-      e.x += e.vx * dtSec
-      e.y += e.vy * dtSec
+      e.x += e.vx * dtSec * speedMult
+      e.y += e.vy * dtSec * speedMult
 
       const dx = e.x - this.arena.center.x
       const dy = e.y - this.arena.center.y
@@ -463,16 +469,29 @@ export class SimEngine {
     const cd = 1 / fireRateNow
 
     const mods = aggregateModules(this._state, this.cfg)
-    const targets = this.pickTargets(pub, mods.shotCount)
+    const baseShots = towerMultiShotCount(this._state, this.cfg)
+    const totalShots = Math.max(1, Math.floor(Math.max(baseShots, mods.shotCount)))
+    const targets = this.pickTargets(pub, totalShots)
     if (targets.length === 0) return
 
+    const crit = effectiveCritParams(this._state, this.cfg, mods)
+
     // Spawn visible projectiles; damage is applied on impact.
-    for (const t of targets) this.spawnProjectile(t.id)
+    for (const t of targets) {
+      let damageMult = 1
+      if (Number.isFinite(crit.everyN) && crit.everyN !== Number.POSITIVE_INFINITY && crit.mult > 1.000001) {
+        this.towerShotCounter++
+        if (this.towerShotCounter % Math.max(1, Math.floor(crit.everyN)) === 0) {
+          damageMult = crit.mult
+        }
+      }
+      this.spawnProjectile(t.id, damageMult)
+    }
 
     this.towerCooldown = cd
   }
 
-  private spawnProjectile(targetEnemyId: number) {
+  private spawnProjectile(targetEnemyId: number, damageMult: number) {
     const speed = 920
     this.projectiles.push({
       id: this.nextProjectileId++,
@@ -480,6 +499,7 @@ export class SimEngine {
       y: this.towerPos.y,
       speed,
       targetEnemyId,
+      damageMult: Math.max(0.1, damageMult),
       alive: true,
     })
 
@@ -507,7 +527,7 @@ export class SimEngine {
 
       if (dist <= hitR) {
         const pub = this.getPublic()
-        const dmg = this.computeDamage(pub, target)
+        const dmg = this.computeDamage(pub, target, p)
         target.hp -= dmg
         if (target.hp <= 0 && target.alive) {
           target.alive = false
@@ -551,12 +571,12 @@ export class SimEngine {
     return inRange.slice(0, n).map((r) => r.e)
   }
 
-  private computeDamage(pub: SimPublic, e: EnemyEntity): number {
+  private computeDamage(pub: SimPublic, e: EnemyEntity, p: ProjectileEntity): number {
     const armorPierce = clamp(pub.tower.armorPierce, 0, 0.9)
 
     // Deterministic reduction: armor reduces flat portion.
     const armorEffective = e.armor * (1 - armorPierce)
-    const raw = pub.tower.damagePerShot
+    const raw = pub.tower.damagePerShot * Math.max(0.1, p.damageMult)
     return Math.max(1, raw - armorEffective * 10)
   }
 

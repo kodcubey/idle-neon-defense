@@ -17,7 +17,10 @@ export type NeonGridGame = {
 
   newRun: () => void
 
-  buyUpgrade: (key: 'damage' | 'fireRate' | 'armorPierce' | 'baseHP' | 'fortify' | 'repair' | 'range' | 'gold', amount: 1 | 10 | 'max') => boolean
+  buyUpgrade: (
+    key: 'damage' | 'fireRate' | 'crit' | 'multiShot' | 'armorPierce' | 'baseHP' | 'slow' | 'fortify' | 'repair' | 'range' | 'gold',
+    amount: 1 | 10 | 'max',
+  ) => boolean
 
   unlockModule: (id: string) => boolean
   upgradeModule: (id: string, amount: 1 | 10 | 'max') => boolean

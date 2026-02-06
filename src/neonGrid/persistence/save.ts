@@ -41,17 +41,20 @@ export function createNewState(config: GameConfig, nowUTC: number): GameState {
     version: config.version,
     lastSaveTimestampUTC: nowUTC,
     wave: 1,
-    gold: 50,
+    gold: 35,
     points: 0,
     paladyumCarry: 0,
     baseHP: config.tower.baseHP0,
     towerUpgrades: {
       damageLevel: 1,
       fireRateLevel: 1,
+      critLevel: 1,
+      multiShotLevel: 1,
       rangeLevel: 1,
       baseHPLevel: 1,
 
       armorPierceLevel: 1,
+      slowLevel: 1,
       fortifyLevel: 1,
       repairLevel: 1,
       goldLevel: 1,
@@ -103,6 +106,8 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
     merged.towerUpgrades.damageLevel = typeof anyMerged.towerLevel === 'number' ? anyMerged.towerLevel : base.towerUpgrades.damageLevel
   }
   if (typeof merged.towerUpgrades.fireRateLevel !== 'number') merged.towerUpgrades.fireRateLevel = base.towerUpgrades.fireRateLevel
+  if (typeof (merged.towerUpgrades as any).critLevel !== 'number') (merged.towerUpgrades as any).critLevel = (base.towerUpgrades as any).critLevel
+  if (typeof (merged.towerUpgrades as any).multiShotLevel !== 'number') (merged.towerUpgrades as any).multiShotLevel = (base.towerUpgrades as any).multiShotLevel
   if (typeof merged.towerUpgrades.rangeLevel !== 'number') merged.towerUpgrades.rangeLevel = base.towerUpgrades.rangeLevel
   if (typeof merged.towerUpgrades.baseHPLevel !== 'number') merged.towerUpgrades.baseHPLevel = base.towerUpgrades.baseHPLevel
 
@@ -113,6 +118,7 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
   }
 
   if (typeof (merged.towerUpgrades as any).armorPierceLevel !== 'number') (merged.towerUpgrades as any).armorPierceLevel = (base.towerUpgrades as any).armorPierceLevel
+  if (typeof (merged.towerUpgrades as any).slowLevel !== 'number') (merged.towerUpgrades as any).slowLevel = (base.towerUpgrades as any).slowLevel
   if (typeof (merged.towerUpgrades as any).fortifyLevel !== 'number') (merged.towerUpgrades as any).fortifyLevel = (base.towerUpgrades as any).fortifyLevel
   if (typeof (merged.towerUpgrades as any).repairLevel !== 'number') (merged.towerUpgrades as any).repairLevel = (base.towerUpgrades as any).repairLevel
   if (typeof (merged.towerUpgrades as any).goldLevel !== 'number') (merged.towerUpgrades as any).goldLevel = (base.towerUpgrades as any).goldLevel

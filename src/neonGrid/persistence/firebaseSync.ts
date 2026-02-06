@@ -9,7 +9,7 @@ import {
   signOut as fbSignOut,
   type User,
 } from 'firebase/auth'
-import { getFirestore, doc, getDoc, setDoc, serverTimestamp, runTransaction } from 'firebase/firestore'
+import { getFirestore, doc, getDoc, serverTimestamp, runTransaction } from 'firebase/firestore'
 
 export type MetaSaveV1 = {
   v: 1
@@ -43,10 +43,14 @@ export function applyMetaToState(current: GameState, meta: MetaSaveV1): GameStat
     mergedLevels[id] = typeof v === 'number' && Number.isFinite(v) ? Math.max(1, Math.floor(v)) : 1
   }
 
+  const metaPoints = typeof meta.points === 'number' && Number.isFinite(meta.points) ? Math.max(0, meta.points) : null
+  const metaPrestige = typeof meta.prestigePoints === 'number' && Number.isFinite(meta.prestigePoints) ? Math.max(0, meta.prestigePoints) : null
+
   return {
     ...current,
-    points: typeof meta.points === 'number' ? meta.points : current.points,
-    prestigePoints: typeof meta.prestigePoints === 'number' ? meta.prestigePoints : current.prestigePoints,
+    // Never let cloud meta reduce meta-currencies locally.
+    points: metaPoints == null ? current.points : Math.max(current.points, metaPoints),
+    prestigePoints: metaPrestige == null ? current.prestigePoints : Math.max(current.prestigePoints, metaPrestige),
     settings: { ...current.settings, ...meta.settings, quality: 'high' },
     stats: { ...current.stats, ...meta.stats },
     modulesUnlocked: { ...current.modulesUnlocked, ...meta.modulesUnlocked },
@@ -321,7 +325,24 @@ export function createFirebaseSync(): FirebaseSync {
         meta,
       }
 
-      await setDoc(saveDocRef(user.uid), payload, { merge: true })
+      // Monotonic update for meta currencies: never decrease points.
+      await runTransaction(db(), async (tx) => {
+        const ref = saveDocRef(user!.uid)
+        const snap = await tx.get(ref)
+
+        let existingPoints: number | null = null
+        if (snap.exists()) {
+          const data = snap.data() as Partial<SaveDocV1>
+          const p = (data as any)?.meta?.points
+          if (typeof p === 'number' && Number.isFinite(p)) existingPoints = Math.max(0, p)
+        }
+
+        if (existingPoints != null) {
+          payload.meta.points = Math.max(payload.meta.points ?? 0, existingPoints)
+        }
+
+        tx.set(ref, payload, { merge: true })
+      })
     },
   }
 }

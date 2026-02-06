@@ -11,7 +11,18 @@ export type Settings = {
 
 export type ModuleCategory = 'OFFENSE' | 'DEFENSE' | 'UTILITY'
 
-export type TowerUpgradeKey = 'damage' | 'fireRate' | 'armorPierce' | 'baseHP' | 'fortify' | 'repair' | 'range' | 'gold'
+export type TowerUpgradeKey =
+  | 'damage'
+  | 'fireRate'
+  | 'crit'
+  | 'multiShot'
+  | 'armorPierce'
+  | 'baseHP'
+  | 'slow'
+  | 'fortify'
+  | 'repair'
+  | 'range'
+  | 'gold'
 
 export type ModuleDef = {
   id: string
@@ -38,6 +49,15 @@ export type ModuleDef = {
   // Shot count is computed as 1 + floor(shotCountPerLevel * effectiveLevel), then capped.
   shotCountPerLevel?: number
   shotCountCap?: number
+
+  // Deterministic crit: every Nth shot deals extra damage.
+  // If both are present, crit is enabled.
+  critEveryN?: number
+  critMultPerLevel?: number
+
+  // Enemy speed multiplier per effective level. Negative values slow enemies.
+  // Example: -0.01 => enemies move 1% slower per level.
+  enemySpeedMultPerLevel?: number
 
   // Periodic invulnerability to escape damage.
   invulnDurationSecPerLevel?: number
@@ -176,6 +196,16 @@ export type GameConfig = {
       repairMaxPctPerSec: number
 
       goldMultPerLevel: number
+
+      // Crit upgrade (deterministic): every Nth shot is critical.
+      critEveryNBase: number
+      critEveryNMin: number
+      critEveryNReducePerLevel: number
+      critMultPerLevel: number
+
+      // Slow upgrade: reduces enemy movement speed.
+      slowPerLevel: number
+      slowMinMult: number
     }
   }
 
@@ -197,6 +227,10 @@ export type GameConfig = {
 
   modules: {
     slotCount: number
+    // Diminishing returns curve for module levels.
+    // effectiveLevel = level ^ levelExponent
+    // 1.0 => linear; < 1.0 => diminishing returns.
+    levelExponent: number
     defs: ModuleDef[]
   }
 }
@@ -223,10 +257,13 @@ export type GameState = {
   towerUpgrades: {
     damageLevel: number
     fireRateLevel: number
+    critLevel: number
+    multiShotLevel: number
     rangeLevel: number
     baseHPLevel: number
 
     armorPierceLevel: number
+    slowLevel: number
     fortifyLevel: number
     repairLevel: number
     goldLevel: number

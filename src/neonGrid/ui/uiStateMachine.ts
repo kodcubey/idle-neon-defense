@@ -1,8 +1,8 @@
-import type { GameConfig, GameState, OfflineProgressResult, RunSummary, WaveReport } from '../types'
+import type { GameConfig, GameState, OfflineProgressResult, RunSummary, TowerUpgradeKey, WaveReport } from '../types'
 import type { NeonGridGame } from '../phaser/createGame'
 import type { SimPublic } from '../sim/SimEngine'
 import { applyMetaToState, type FirebaseSync } from '../persistence/firebaseSync'
-import { createNewState } from '../persistence/save'
+import { createNewState, saveSnapshot } from '../persistence/save'
 import { btn, clear, el, hr, kv } from './dom'
 import { formatNumber, formatPaladyum, formatPaladyumInt, formatPct, formatTimeMMSS } from './format'
 import { calcPenaltyFactor, calcWaveSnapshot, clamp, calcDPS, aggregateModules } from '../sim/deterministic'
@@ -912,8 +912,35 @@ export function createUIStateMachine(args: UIArgs) {
 
     const menu = btn('Menu', 'btn')
     menu.onclick = () => {
-      if (game) game.setPaused(true)
-      setScreen('menu')
+      void (async () => {
+        if (!game) return
+
+        // Freeze gameplay and capture the latest snapshot before leaving HUD.
+        game.setPaused(true)
+        const snapshot = game.getSnapshot()
+        lastState = snapshot
+
+        // Always persist locally; and if signed in, upload meta now so
+        // subsequent cloud pulls (e.g., Continue) can't overwrite progress.
+        const st = firebaseSync?.getStatus()
+        const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
+
+        if (canCloud) {
+          try {
+            await withLoading(async () => {
+              saveSnapshot(config, snapshot)
+              await firebaseSync!.uploadMetaFromState(snapshot)
+            })
+          } catch (e) {
+            // If cloud save fails, keep local progress and still go to menu.
+            alert(String((e as any)?.message ?? e))
+          }
+        } else {
+          saveSnapshot(config, snapshot)
+        }
+
+        setScreen('menu')
+      })()
     }
 
     rightStack.append(upgrades, menu)
@@ -939,15 +966,18 @@ export function createUIStateMachine(args: UIArgs) {
 
       if (upgradesTab === 'attack') {
         ub.appendChild(renderUpgradeRow('Damage', 'damage', state.towerUpgrades.damageLevel))
-        ub.appendChild(renderUpgradeRow('Fire Rate', 'fireRate', state.towerUpgrades.fireRateLevel))
-        ub.appendChild(renderUpgradeRow('Armor Piercing', 'armorPierce', (state.towerUpgrades as any).armorPierceLevel))
+        ub.appendChild(renderUpgradeRow('Attack Speed', 'fireRate', state.towerUpgrades.fireRateLevel))
+        ub.appendChild(renderUpgradeRow('Crit', 'crit', state.towerUpgrades.critLevel))
+        ub.appendChild(renderUpgradeRow('Multi-shot', 'multiShot', state.towerUpgrades.multiShotLevel))
+        ub.appendChild(renderUpgradeRow('Armor Piercing', 'armorPierce', state.towerUpgrades.armorPierceLevel))
       } else if (upgradesTab === 'defense') {
         ub.appendChild(renderUpgradeRow('Base HP', 'baseHP', state.towerUpgrades.baseHPLevel))
-        ub.appendChild(renderUpgradeRow('Fortify (Escape DR)', 'fortify', (state.towerUpgrades as any).fortifyLevel))
-        ub.appendChild(renderUpgradeRow('Repair (Regen)', 'repair', (state.towerUpgrades as any).repairLevel))
+        ub.appendChild(renderUpgradeRow('Slow Field', 'slow', state.towerUpgrades.slowLevel))
+        ub.appendChild(renderUpgradeRow('Fortify (Escape DR)', 'fortify', state.towerUpgrades.fortifyLevel))
+        ub.appendChild(renderUpgradeRow('Repair (Regen)', 'repair', state.towerUpgrades.repairLevel))
       } else {
         ub.appendChild(renderUpgradeRow('Range', 'range', state.towerUpgrades.rangeLevel))
-        ub.appendChild(renderUpgradeRow('Gold Finder', 'gold', (state.towerUpgrades as any).goldLevel))
+        ub.appendChild(renderUpgradeRow('Gold Finder', 'gold', state.towerUpgrades.goldLevel))
       }
 
       const liveTitle = el('div')
@@ -1071,6 +1101,12 @@ export function createUIStateMachine(args: UIArgs) {
       if (agg.armorPierce !== config.tower.armorPierce0) effectLines.push(`Armor Pierce: <span class="mono">${formatPct(agg.armorPierce)}</span>`)
 
       if (agg.shotCount > 1) effectLines.push(`Ability: <span class="mono">Multi-shot</span> (${agg.shotCount} targets)`)
+      if (Number.isFinite(agg.critEveryN) && agg.critEveryN !== Number.POSITIVE_INFINITY && agg.critMult > 1.000001) {
+        effectLines.push(`Ability: <span class="mono">Crit</span> (every ${Math.max(2, Math.floor(agg.critEveryN))} shots, x${agg.critMult.toFixed(2)})`)
+      }
+      if (agg.enemySpeedMult !== 1) {
+        effectLines.push(`Enemy Speed: <span class="mono">x${agg.enemySpeedMult.toFixed(2)}</span>`)
+      }
       if (agg.invulnDurationSec > 0 && agg.invulnCooldownSec > 0) {
         effectLines.push(
           `Ability: <span class="mono">Invuln vs escapes</span> (${agg.invulnDurationSec.toFixed(2)}s / ${agg.invulnCooldownSec.toFixed(0)}s)`,
@@ -1110,7 +1146,7 @@ export function createUIStateMachine(args: UIArgs) {
 
   function renderUpgradeRow(
     label: string,
-    key: 'damage' | 'fireRate' | 'armorPierce' | 'baseHP' | 'fortify' | 'repair' | 'range' | 'gold',
+    key: TowerUpgradeKey,
     level: number,
   ): HTMLElement {
     const box = el('div')
@@ -1533,6 +1569,14 @@ export function createUIStateMachine(args: UIArgs) {
     if (def.invulnDurationSecPerLevel && def.invulnCooldownSec) {
       parts.push(`Ability: Invuln vs escapes (${def.invulnDurationSecPerLevel.toFixed(2)}s/level, every ${def.invulnCooldownSec}s)`)
     }
+
+    if (def.critEveryN && def.critMultPerLevel) {
+      parts.push(`Ability: Crit (every ${Math.max(2, Math.floor(def.critEveryN))} shots, +${pct(def.critMultPerLevel)} mult/level)`)
+    }
+
+    if (def.enemySpeedMultPerLevel) {
+      parts.push(`Ability: Slow enemies (${pct(def.enemySpeedMultPerLevel)} speed/level)`)
+    }
     if (typeof def.maxEffectiveLevel === 'number') parts.push(`Balance cap: effective Lv ≤ ${Math.max(0, Math.floor(def.maxEffectiveLevel))}`)
 
     return parts.length ? parts.join(' • ') : 'Effect: (not defined)'
@@ -1632,15 +1676,18 @@ export function createUIStateMachine(args: UIArgs) {
 
     if (upgradesTab === 'attack') {
       b.appendChild(renderUpgradeRow('Damage', 'damage', lastState.towerUpgrades.damageLevel))
-      b.appendChild(renderUpgradeRow('Fire Rate', 'fireRate', lastState.towerUpgrades.fireRateLevel))
-      b.appendChild(renderUpgradeRow('Armor Piercing', 'armorPierce', (lastState.towerUpgrades as any).armorPierceLevel))
+      b.appendChild(renderUpgradeRow('Attack Speed', 'fireRate', lastState.towerUpgrades.fireRateLevel))
+      b.appendChild(renderUpgradeRow('Crit', 'crit', lastState.towerUpgrades.critLevel))
+      b.appendChild(renderUpgradeRow('Multi-shot', 'multiShot', lastState.towerUpgrades.multiShotLevel))
+      b.appendChild(renderUpgradeRow('Armor Piercing', 'armorPierce', lastState.towerUpgrades.armorPierceLevel))
     } else if (upgradesTab === 'defense') {
       b.appendChild(renderUpgradeRow('Base HP', 'baseHP', lastState.towerUpgrades.baseHPLevel))
-      b.appendChild(renderUpgradeRow('Fortify (Escape DR)', 'fortify', (lastState.towerUpgrades as any).fortifyLevel))
-      b.appendChild(renderUpgradeRow('Repair (Regen)', 'repair', (lastState.towerUpgrades as any).repairLevel))
+      b.appendChild(renderUpgradeRow('Slow Field', 'slow', lastState.towerUpgrades.slowLevel))
+      b.appendChild(renderUpgradeRow('Fortify (Escape DR)', 'fortify', lastState.towerUpgrades.fortifyLevel))
+      b.appendChild(renderUpgradeRow('Repair (Regen)', 'repair', lastState.towerUpgrades.repairLevel))
     } else {
       b.appendChild(renderUpgradeRow('Range', 'range', lastState.towerUpgrades.rangeLevel))
-      b.appendChild(renderUpgradeRow('Gold Finder', 'gold', (lastState.towerUpgrades as any).goldLevel))
+      b.appendChild(renderUpgradeRow('Gold Finder', 'gold', lastState.towerUpgrades.goldLevel))
     }
 
     modal.append(h, b)
