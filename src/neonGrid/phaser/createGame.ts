@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import type { GameConfig, GameState, RunSummary, WaveReport } from '../types'
 import { SimEngine, type SimCallbacks, type SimPublic } from '../sim/SimEngine'
 import { createNewState } from '../persistence/save'
-import { applyTowerUpgrade, equipModule, tryModuleUnlock, tryModuleUpgrade, tryUnlockModuleSlot } from '../sim/actions'
+import { applyTowerMetaUpgrade, applyTowerUpgrade, equipModule, tryModuleUnlock, tryModuleUpgrade, tryUnlockModuleSlot } from '../sim/actions'
 import { BootScene } from './scenes/BootScene'
 import { GameScene } from './scenes/GameScene'
 
@@ -18,6 +18,11 @@ export type NeonGridGame = {
   newRun: () => void
 
   buyUpgrade: (
+    key: 'damage' | 'fireRate' | 'crit' | 'multiShot' | 'armorPierce' | 'baseHP' | 'slow' | 'fortify' | 'repair' | 'range' | 'gold',
+    amount: 1 | 10 | 'max',
+  ) => boolean
+
+  buyMetaUpgrade: (
     key: 'damage' | 'fireRate' | 'crit' | 'multiShot' | 'armorPierce' | 'baseHP' | 'slow' | 'fortify' | 'repair' | 'range' | 'gold',
     amount: 1 | 10 | 'max',
   ) => boolean
@@ -187,6 +192,10 @@ export function createGame(args: {
       s.modulesEquipped = { ...prev.modulesEquipped }
       s.moduleSlotsUnlocked = prev.moduleSlotsUnlocked
 
+       // Permanent upgrades define starting tower upgrade levels.
+       s.towerMetaUpgrades = { ...prev.towerMetaUpgrades }
+       s.towerUpgrades = { ...prev.towerMetaUpgrades } as any
+
       applyState(s, 'hard')
       pendingPaused = false
       if (engine) engine.setPaused(false)
@@ -195,6 +204,14 @@ export function createGame(args: {
     buyUpgrade: (key, amount) => {
       const s = currentState()
       const next = applyTowerUpgrade({ state: s, cfg, key, amount })
+      if (!next.ok) return false
+      applyState(next.state, 'soft')
+      return true
+    },
+
+    buyMetaUpgrade: (key, amount) => {
+      const s = currentState()
+      const next = applyTowerMetaUpgrade({ state: s, cfg, key, amount })
       if (!next.ok) return false
       applyState(next.state, 'soft')
       return true

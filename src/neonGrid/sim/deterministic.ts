@@ -360,6 +360,21 @@ export function calcPointsReward(wave: number, cfg: GameConfig): number {
   return Math.max(1, Math.ceil(cfg.progression.p0 * Math.pow(cfg.progression.pointsGrowthPer10, tier)))
 }
 
+export function calcPaladyumDropChancePerKill(args: { wave: number; spawnCount: number; cfg: GameConfig }): number {
+  const { wave, spawnCount, cfg } = args
+  const N = Math.max(1, Math.floor(spawnCount))
+
+  // Deterministic "drop" model (no RNG): we convert the old per-wave Paladyum baseline
+  // into a per-kill probability, so expected Paladyum per wave is:
+  //   E[points] ~= paladyumDropRate * basePointsPerWave
+  // where basePointsPerWave follows p0 / pointsGrowthPer10 tiering.
+  const basePointsPerWave = calcPointsReward(wave, cfg)
+  const chance = (cfg.progression.paladyumDropRate * basePointsPerWave) / N
+
+  // Safety clamp: even at high tiers, keep it a "rare" event.
+  return clamp(chance, 0, 0.25)
+}
+
 export function calcPaladyumRewardForWave(state: GameState, wave: number, cfg: GameConfig): { reward: number; nextCarry: number } {
   // Paladyum (meta currency) reward:
   // - Deterministic, every wave.
@@ -369,13 +384,9 @@ export function calcPaladyumRewardForWave(state: GameState, wave: number, cfg: G
   const tier = Math.floor((w - 1) / 10)
 
   const basePerWave = Math.max(0, cfg.progression.p0 * Math.pow(cfg.progression.pointsGrowthPer10, tier))
-  const carry = typeof (state as any).paladyumCarry === 'number' && Number.isFinite((state as any).paladyumCarry) ? (state as any).paladyumCarry : 0
-
-  const total = Math.max(0, basePerWave + carry)
-  const reward = Math.floor(total)
-  const nextCarry = clamp(total - reward, 0, 0.999999)
-
-  return { reward, nextCarry }
+  const reward = Math.max(0, Math.floor(basePerWave))
+  void state
+  return { reward, nextCarry: 0 }
 }
 
 export function calcWaveSnapshot(state: GameState, cfg: GameConfig): WaveSnapshot {
@@ -399,6 +410,7 @@ export function calcWaveReport(args: {
   killed: number
   escaped: number
   cfg: GameConfig
+  rewardPoints?: number
 }): WaveReport {
   const { snapshot, killed, escaped, cfg, state } = args
   const N = Math.max(1, snapshot.spawnCount)
@@ -407,7 +419,7 @@ export function calcWaveReport(args: {
 
   const baseGold = calcBaseGold(snapshot.wave, snapshot.totalEHP, cfg)
   const rewardGold = baseGold * penaltyFactor * aggregateModules(state, cfg).goldMult * towerGoldMult(state, cfg)
-  const rewardPoints = calcPaladyumRewardForWave(state, snapshot.wave, cfg).reward
+  const rewardPoints = Math.max(0, Math.floor(args.rewardPoints ?? 0))
 
   const baseDamageFromEscapes = cfg.progression.enableEscapeDamage
     ? escaped * cfg.progression.escapeDamage * (1 + cfg.progression.deficitBoost * deficit)

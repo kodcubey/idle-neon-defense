@@ -15,6 +15,7 @@ export type MetaSaveV1 = {
   v: 1
   points: number
   prestigePoints: number
+  towerMetaUpgrades?: GameState['towerMetaUpgrades']
   settings: GameState['settings']
   stats: GameState['stats']
   modulesUnlocked: GameState['modulesUnlocked']
@@ -28,6 +29,7 @@ export function extractMetaFromState(state: GameState): MetaSaveV1 {
     v: 1,
     points: state.points,
     prestigePoints: state.prestigePoints,
+    towerMetaUpgrades: state.towerMetaUpgrades ? { ...state.towerMetaUpgrades } : undefined,
     settings: { ...state.settings },
     stats: { ...state.stats },
     modulesUnlocked: { ...state.modulesUnlocked },
@@ -46,11 +48,26 @@ export function applyMetaToState(current: GameState, meta: MetaSaveV1): GameStat
   const metaPoints = typeof meta.points === 'number' && Number.isFinite(meta.points) ? Math.max(0, meta.points) : null
   const metaPrestige = typeof meta.prestigePoints === 'number' && Number.isFinite(meta.prestigePoints) ? Math.max(0, meta.prestigePoints) : null
 
+  const nextMetaUpgrades = (() => {
+    const base = current.towerMetaUpgrades
+    const incoming = meta.towerMetaUpgrades
+    if (!incoming || typeof incoming !== 'object') return base
+    const merged: any = { ...base }
+    for (const [k, v] of Object.entries(incoming as any)) {
+      const inc = typeof v === 'number' && Number.isFinite(v) ? Math.max(1, Math.floor(v)) : 1
+      const cur = merged[k]
+      const curL = typeof cur === 'number' && Number.isFinite(cur) ? Math.max(1, Math.floor(cur)) : 1
+      merged[k] = Math.max(curL, inc)
+    }
+    return merged as GameState['towerMetaUpgrades']
+  })()
+
   return {
     ...current,
     // Never let cloud meta reduce meta-currencies locally.
     points: metaPoints == null ? current.points : Math.max(current.points, metaPoints),
     prestigePoints: metaPrestige == null ? current.prestigePoints : Math.max(current.prestigePoints, metaPrestige),
+    towerMetaUpgrades: nextMetaUpgrades,
     settings: { ...current.settings, ...meta.settings, quality: 'high' },
     stats: { ...current.stats, ...meta.stats },
     modulesUnlocked: { ...current.modulesUnlocked, ...meta.modulesUnlocked },

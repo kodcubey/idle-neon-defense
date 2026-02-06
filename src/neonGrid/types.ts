@@ -156,8 +156,10 @@ export type GameConfig = {
     goldWaveK: number
     p0: number
     pointsGrowthPer10: number
-    // Meta currency (Paladyum) drop rate multiplier applied to the base points reward.
-    // Example: 0.01 means ~1% of the previous points income, accumulated deterministically.
+    // Meta currency (Paladyum): deterministic *per-kill* drop chance scalar.
+    // We convert the base per-wave points baseline into a per-kill chance so that:
+    //   E[Paladyum per wave] ~= paladyumDropRate * basePointsPerWave
+    // Example: 0.01 means ~1% of the previous per-wave Paladyum income.
     paladyumDropRate: number
 
     // Escapes
@@ -212,6 +214,10 @@ export type GameConfig = {
   economy: {
     upgradeCostBase: number
     upgradeCostGrowth: number
+
+    // Permanent (meta) upgrade costs paid with Paladyum.
+    metaUpgradeCostBasePoints: number
+    metaUpgradeCostGrowth: number
     moduleUnlockPointCostBase: number
     moduleUnlockPointCostGrowth: number
     moduleUpgradeGoldBase: number
@@ -254,6 +260,24 @@ export type GameState = {
   paladyumCarry: number
 
   baseHP: number
+
+  // Permanent upgrades that define the *starting* level of each tower upgrade track.
+  // These are purchased with Paladyum and persist across runs.
+  towerMetaUpgrades: {
+    damageLevel: number
+    fireRateLevel: number
+    critLevel: number
+    multiShotLevel: number
+    rangeLevel: number
+    baseHPLevel: number
+
+    armorPierceLevel: number
+    slowLevel: number
+    fortifyLevel: number
+    repairLevel: number
+    goldLevel: number
+  }
+
   towerUpgrades: {
     damageLevel: number
     fireRateLevel: number

@@ -4,9 +4,9 @@ import type { SimPublic } from '../sim/SimEngine'
 import { applyMetaToState, type FirebaseSync } from '../persistence/firebaseSync'
 import { createNewState, saveSnapshot } from '../persistence/save'
 import { btn, clear, el, hr, kv } from './dom'
-import { formatNumber, formatPaladyum, formatPaladyumInt, formatPct, formatTimeMMSS } from './format'
+import { formatNumber, formatPaladyumInt, formatPct, formatTimeMMSS } from './format'
 import { calcPenaltyFactor, calcWaveSnapshot, clamp, calcDPS, aggregateModules } from '../sim/deterministic'
-import { moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from '../sim/costs'
+import { metaUpgradeCostPoints, moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from '../sim/costs'
 
 export type UIScreen = 'boot' | 'menu' | 'login' | 'hud' | 'modules' | 'settings' | 'stats' | 'offline'
 
@@ -485,7 +485,7 @@ export function createUIStateMachine(args: UIArgs) {
     const balances = el('div', 'muted')
     balances.style.marginTop = '10px'
     const pal = lastState?.points ?? 0
-    balances.innerHTML = `Paladyum: <span class="mono">${formatPaladyum(pal)}</span>`
+    balances.innerHTML = `Paladyum: <span class="mono">${formatPaladyumInt(pal)}</span>`
 
     const row = el('div', 'stack ng-menu-actions')
     row.style.marginTop = '12px'
@@ -583,20 +583,20 @@ export function createUIStateMachine(args: UIArgs) {
           }
         }
 
-        setScreen('modules')
+        showModulesModal()
       })()
     }
 
     const stats = btn('Stats', 'btn')
     stats.onclick = () => {
       if (game) game.setPaused(true)
-      setScreen('stats')
+      showStatsModal()
     }
 
     const settings = btn('Settings', 'btn')
     settings.onclick = () => {
       if (game) game.setPaused(true)
-      setScreen('settings')
+      showSettingsModal()
     }
 
     const credits = btn('Credits', 'btn')
@@ -604,7 +604,13 @@ export function createUIStateMachine(args: UIArgs) {
       alert('NEON GRID — Deterministic Idle Tower Defense\nUI/Sim prototype skeleton.')
     }
 
-    row.append(cont, newRun, modules, stats, settings, credits)
+    const metaUpg = btn('Meta Upgrades', 'btn')
+    metaUpg.onclick = () => {
+      if (!lastState) return
+      showMetaUpgradesModal()
+    }
+
+    row.append(cont, newRun, metaUpg, modules, stats, settings, credits)
 
     const card = el('div', 'panel')
     card.style.marginTop = '12px'
@@ -747,6 +753,138 @@ export function createUIStateMachine(args: UIArgs) {
     if (signedInPanel) body.appendChild(signedInPanel)
     panel.append(header, body)
     center.appendChild(panel)
+  }
+
+  function showMetaUpgradesModal() {
+    if (!lastState) return
+
+    const modal = el('div', 'panel')
+    modal.style.width = 'min(760px, calc(100vw - 20px))'
+    modal.style.pointerEvents = 'auto'
+
+    const h = el('div', 'panel-header')
+    const title = el('div')
+    title.textContent = 'Meta Upgrades (Permanent)'
+    const close = btn('Close', 'btn')
+    const overlay = mountModal(modal)
+    close.onclick = () => overlay.remove()
+    h.append(title, close)
+
+    const b = el('div', 'panel-body')
+
+    const bal = el('div', 'muted')
+    bal.style.marginBottom = '10px'
+    bal.innerHTML = `Paladyum: <span class="mono">${formatPaladyumInt(lastState.points)}</span>`
+
+    b.append(
+      bal,
+      renderUpgradesTabs(() => {
+        overlay.remove()
+        showMetaUpgradesModal()
+      }),
+    )
+
+    const levelOf = (key: TowerUpgradeKey) => {
+      const m = (lastState as any).towerMetaUpgrades
+      if (!m) return 1
+      switch (key) {
+        case 'damage':
+          return m.damageLevel
+        case 'fireRate':
+          return m.fireRateLevel
+        case 'crit':
+          return m.critLevel
+        case 'multiShot':
+          return m.multiShotLevel
+        case 'armorPierce':
+          return m.armorPierceLevel
+        case 'range':
+          return m.rangeLevel
+        case 'baseHP':
+          return m.baseHPLevel
+        case 'slow':
+          return m.slowLevel
+        case 'fortify':
+          return m.fortifyLevel
+        case 'repair':
+          return m.repairLevel
+        case 'gold':
+          return m.goldLevel
+      }
+    }
+
+    const renderMetaRow = (label: string, key: TowerUpgradeKey) => {
+      const level = Math.max(1, Math.floor(levelOf(key)))
+      const maxL = upgradeMaxLevel(key, config)
+      const atMax = level >= maxL
+      const nextCost = atMax ? 'MAX' : formatNumber(metaUpgradeCostPoints(key, level, config), lastState?.settings.numberFormat ?? 'suffix')
+
+      const box = el('div')
+      box.style.display = 'grid'
+      box.style.gridTemplateColumns = '1fr auto'
+      box.style.gap = '10px'
+      box.style.alignItems = 'center'
+      box.style.marginBottom = '10px'
+
+      const left = el('div')
+      left.innerHTML = `<div style="font-weight:800">${label}</div><div class="muted mono">Lv ${level}${Number.isFinite(maxL) ? ` / ${maxL}` : ''} • Next:</div><div class="mono" style="font-weight:800">${nextCost}</div>`
+
+      const controls = el('div', 'stack')
+      const b1 = btn('+1', 'btn')
+      const b10 = btn('+10', 'btn')
+      const bM = btn('+Max', 'btn')
+
+      if (atMax) {
+        b1.disabled = true
+        b10.disabled = true
+        bM.disabled = true
+      }
+
+      const doBuy = (amt: 1 | 10 | 'max', elBtn: HTMLButtonElement) => {
+        if (!game) {
+          flashFail(elBtn)
+          return
+        }
+        const ok = (game as any).buyMetaUpgrade?.(key, amt)
+        if (!ok) {
+          flashFail(elBtn)
+          return
+        }
+        lastState = game.getSnapshot()
+        overlay.remove()
+        showMetaUpgradesModal()
+      }
+
+      b1.onclick = () => doBuy(1, b1)
+      b10.onclick = () => doBuy(10, b10)
+      bM.onclick = () => doBuy('max', bM)
+
+      controls.append(b1, b10, bM)
+      box.append(left, controls)
+      return box
+    }
+
+    if (upgradesTab === 'attack') {
+      b.append(renderMetaRow('Damage', 'damage'))
+      b.append(renderMetaRow('Attack Speed', 'fireRate'))
+      b.append(renderMetaRow('Crit', 'crit'))
+      b.append(renderMetaRow('Multi-shot', 'multiShot'))
+      b.append(renderMetaRow('Armor Piercing', 'armorPierce'))
+    } else if (upgradesTab === 'defense') {
+      b.append(renderMetaRow('Base HP', 'baseHP'))
+      b.append(renderMetaRow('Slow Field', 'slow'))
+      b.append(renderMetaRow('Fortify (Escape DR)', 'fortify'))
+      b.append(renderMetaRow('Repair (Regen)', 'repair'))
+    } else {
+      b.append(renderMetaRow('Range', 'range'))
+      b.append(renderMetaRow('Gold Finder', 'gold'))
+    }
+
+    modal.append(h, b)
+
+    overlay.addEventListener('pointerdown', (e) => {
+      if (e.target === overlay) overlay.remove()
+    })
   }
 
   function renderLogin() {
@@ -1218,8 +1356,12 @@ export function createUIStateMachine(args: UIArgs) {
     return box
   }
 
-  function renderModules() {
-    if (!game || !lastState) return
+  function buildModulesPanel(args: {
+    backLabel: string
+    onBack: () => void
+    rerender: () => void
+  }): HTMLElement {
+    if (!game || !lastState) return el('div')
 
     const panel = el('div', 'panel')
     panel.style.maxWidth = '920px'
@@ -1229,15 +1371,15 @@ export function createUIStateMachine(args: UIArgs) {
     const header = el('div', 'panel-header')
     header.appendChild(el('div')).textContent = 'Modules'
 
-    const back = btn('Back', 'btn')
-    back.onclick = () => setScreen('menu')
+    const back = btn(args.backLabel, 'btn')
+    back.onclick = () => args.onBack()
     header.appendChild(back)
 
     const body = el('div', 'panel-body')
 
     const bal = el('div', 'muted')
     bal.style.marginBottom = '8px'
-    bal.innerHTML = `Paladyum: <span class="mono">${formatPaladyum(lastState.points)}</span>`
+    bal.innerHTML = `Paladyum: <span class="mono">${formatPaladyumInt(lastState.points)}</span>`
 
     // Slots / Equip
     const slotsPanel = el('div', 'panel')
@@ -1299,18 +1441,18 @@ export function createUIStateMachine(args: UIArgs) {
             await firebaseSync!.uploadMetaFromState(game!.getSnapshot())
             return true
           })
-          render()
+          args.rerender()
           return ok
         } catch (e) {
           alert(String((e as any)?.message ?? e))
           lastState = game.getSnapshot()
-          render()
+          args.rerender()
           return false
         }
       }
 
       const ok = doLocal()
-      if (ok) render()
+      if (ok) args.rerender()
       return ok
     }
 
@@ -1404,7 +1546,7 @@ export function createUIStateMachine(args: UIArgs) {
           return
         }
         lastState = game.getSnapshot()
-        render()
+        args.rerender()
       }
       sb.appendChild(buy)
     }
@@ -1419,7 +1561,7 @@ export function createUIStateMachine(args: UIArgs) {
       b.onclick = () => {
         modulesFilter = f
         modulesPage = 0
-        render()
+        args.rerender()
       }
       return b
     }
@@ -1472,7 +1614,7 @@ export function createUIStateMachine(args: UIArgs) {
             return
           }
           lastState = game.getSnapshot()
-          render()
+          args.rerender()
         }
         actions.appendChild(b)
       } else {
@@ -1501,7 +1643,7 @@ export function createUIStateMachine(args: UIArgs) {
           const ok = game.upgradeModule(def.id, 1)
           if (!ok) { flashFail(b1); return }
           lastState = game.getSnapshot()
-          render()
+          args.rerender()
         }
         const b10 = btn('+10', 'btn')
         b10.onclick = () => {
@@ -1509,7 +1651,7 @@ export function createUIStateMachine(args: UIArgs) {
           const ok = game.upgradeModule(def.id, 10)
           if (!ok) { flashFail(b10); return }
           lastState = game.getSnapshot()
-          render()
+          args.rerender()
         }
         const bM = btn('+Max', 'btn')
         bM.onclick = () => {
@@ -1517,7 +1659,7 @@ export function createUIStateMachine(args: UIArgs) {
           const ok = game.upgradeModule(def.id, 'max')
           if (!ok) { flashFail(bM); return }
           lastState = game.getSnapshot()
-          render()
+          args.rerender()
         }
 
         actions.append(add, kv('Level', String(level), true), b1, b10, bM)
@@ -1531,7 +1673,7 @@ export function createUIStateMachine(args: UIArgs) {
     // Pagination controls
     const pager = el('div', 'hud-pager')
     const prevBtn = btn('◀ Prev', 'btn')
-    prevBtn.onclick = () => { modulesPage = Math.max(0, modulesPage - 1); render() }
+    prevBtn.onclick = () => { modulesPage = Math.max(0, modulesPage - 1); args.rerender() }
     if (modulesPage === 0) prevBtn.disabled = true
 
     const pageLabel = el('div', 'muted mono')
@@ -1539,13 +1681,42 @@ export function createUIStateMachine(args: UIArgs) {
     pageLabel.style.fontSize = '13px'
 
     const nextBtn = btn('Next ▶', 'btn')
-    nextBtn.onclick = () => { modulesPage = Math.min(totalPages - 1, modulesPage + 1); render() }
+    nextBtn.onclick = () => { modulesPage = Math.min(totalPages - 1, modulesPage + 1); args.rerender() }
     if (modulesPage >= totalPages - 1) nextBtn.disabled = true
 
     pager.append(prevBtn, pageLabel, nextBtn)
 
     body.append(bal, slotsPanel, filterRow, list, pager)
     panel.append(header, body)
+    return panel
+  }
+
+  function showModulesModal() {
+    if (!game || !lastState) return
+
+    const panel = buildModulesPanel({
+      backLabel: 'Close',
+      onBack: () => overlay.remove(),
+      rerender: () => {
+        overlay.remove()
+        showModulesModal()
+      },
+    })
+    panel.style.width = 'min(980px, calc(100vw - 20px))'
+
+    const overlay = mountModal(panel)
+    overlay.addEventListener('pointerdown', (e) => {
+      if (e.target === overlay) overlay.remove()
+    })
+  }
+
+  function renderModules() {
+    if (!game || !lastState) return
+    const panel = buildModulesPanel({
+      backLabel: 'Back',
+      onBack: () => setScreen('menu'),
+      rerender: () => render(),
+    })
     center.appendChild(panel)
   }
 
@@ -1585,16 +1756,25 @@ export function createUIStateMachine(args: UIArgs) {
   function renderSettings() {
     if (!game || !lastState) return
 
-    const panel = el('div', 'panel')
+    const panel = buildSettingsPanel({
+      backLabel: 'Back',
+      onBack: () => setScreen('menu'),
+      rerender: () => render(),
+    })
     panel.style.maxWidth = '820px'
     panel.style.margin = 'auto'
+    center.appendChild(panel)
+  }
+
+  function buildSettingsPanel(args: { backLabel: string; onBack: () => void; rerender: () => void }) {
+    const panel = el('div', 'panel')
     panel.style.pointerEvents = 'auto'
 
     const header = el('div', 'panel-header')
     header.appendChild(el('div')).textContent = 'Settings'
 
-    const back = btn('Back', 'btn')
-    back.onclick = () => setScreen('menu')
+    const back = btn(args.backLabel, 'btn')
+    back.onclick = args.onBack
     header.appendChild(back)
 
     const body = el('div', 'panel-body')
@@ -1606,10 +1786,11 @@ export function createUIStateMachine(args: UIArgs) {
     slider.min = '0'
     slider.max = '1'
     slider.step = '0.01'
-    slider.value = String(lastState.settings.audioMaster)
+    slider.value = String(lastState?.settings.audioMaster ?? 1)
     slider.oninput = () => {
-      lastState!.settings.audioMaster = Number(slider.value)
-      game!.setSnapshot({ ...lastState! })
+      if (!game || !lastState) return
+      lastState.settings.audioMaster = Number(slider.value)
+      game.setSnapshot({ ...lastState })
     }
     audio.appendChild(slider)
 
@@ -1622,7 +1803,7 @@ export function createUIStateMachine(args: UIArgs) {
     const sci = btn('Scientific', 'btn')
 
     const markNF = () => {
-      const active = lastState!.settings.numberFormat
+      const active = lastState?.settings.numberFormat ?? 'suffix'
       suf.classList.toggle('is-selected', active === 'suffix')
       sci.classList.toggle('is-selected', active === 'scientific')
       suf.setAttribute('aria-pressed', active === 'suffix' ? 'true' : 'false')
@@ -1631,24 +1812,42 @@ export function createUIStateMachine(args: UIArgs) {
     markNF()
 
     suf.onclick = () => {
-      lastState!.settings.numberFormat = 'suffix'
-      game!.setSnapshot({ ...lastState! })
+      if (!game || !lastState) return
+      lastState.settings.numberFormat = 'suffix'
+      game.setSnapshot({ ...lastState })
       markNF()
-      render()
+      args.rerender()
     }
     sci.onclick = () => {
-      lastState!.settings.numberFormat = 'scientific'
-      game!.setSnapshot({ ...lastState! })
+      if (!game || !lastState) return
+      lastState.settings.numberFormat = 'scientific'
+      game.setSnapshot({ ...lastState })
       markNF()
-      render()
+      args.rerender()
     }
     nfRow.append(suf, sci)
-
     nf.appendChild(nfRow)
 
     body.append(audio, nf)
     panel.append(header, body)
-    center.appendChild(panel)
+    return panel
+  }
+
+  function showSettingsModal() {
+    const panel = buildSettingsPanel({
+      backLabel: 'Close',
+      onBack: () => overlay.remove(),
+      rerender: () => {
+        overlay.remove()
+        showSettingsModal()
+      },
+    })
+    panel.style.width = 'min(820px, calc(100vw - 20px))'
+
+    const overlay = mountModal(panel)
+    overlay.addEventListener('pointerdown', (e) => {
+      if (e.target === overlay) overlay.remove()
+    })
   }
 
   function showUpgradesModal() {
@@ -1701,19 +1900,33 @@ export function createUIStateMachine(args: UIArgs) {
   function renderStats() {
     if (!lastState) return
 
-    const panel = el('div', 'panel')
+    const panel = buildStatsPanel({
+      backLabel: 'Back',
+      onBack: () => setScreen('menu'),
+    })
     panel.style.maxWidth = '920px'
     panel.style.margin = 'auto'
+    center.appendChild(panel)
+  }
+
+  function buildStatsPanel(args: { backLabel: string; onBack: () => void }) {
+    const panel = el('div', 'panel')
     panel.style.pointerEvents = 'auto'
 
     const header = el('div', 'panel-header')
     header.appendChild(el('div')).textContent = 'Codex / Stats'
 
-    const back = btn('Back', 'btn')
-    back.onclick = () => setScreen('menu')
+    const back = btn(args.backLabel, 'btn')
+    back.onclick = args.onBack
     header.appendChild(back)
 
     const body = el('div', 'panel-body')
+
+    if (!lastState) {
+      body.appendChild(el('div', 'muted')).textContent = 'No stats available.'
+      panel.append(header, body)
+      return panel
+    }
 
     body.append(
       kv('Total Kills', String(lastState.stats.totalKills), true),
@@ -1743,7 +1956,20 @@ export function createUIStateMachine(args: UIArgs) {
 
     body.append(enemy, formula)
     panel.append(header, body)
-    center.appendChild(panel)
+    return panel
+  }
+
+  function showStatsModal() {
+    const panel = buildStatsPanel({
+      backLabel: 'Close',
+      onBack: () => overlay.remove(),
+    })
+    panel.style.width = 'min(920px, calc(100vw - 20px))'
+
+    const overlay = mountModal(panel)
+    overlay.addEventListener('pointerdown', (e) => {
+      if (e.target === overlay) overlay.remove()
+    })
   }
 
   function showWaveComplete(report: WaveReport) {
@@ -1764,7 +1990,7 @@ export function createUIStateMachine(args: UIArgs) {
     b.innerHTML = `
       <div class="muted">Killed: <span class="mono">${report.killed}</span> • Escaped: <span class="mono">${report.escaped}</span></div>
       <div class="muted">KR: <span class="mono">${report.killRatio.toFixed(2)}</span> • Target: <span class="mono">${report.threshold.toFixed(2)}</span></div>
-      <div class="muted">Reward: <span class="mono">${formatNumber(report.rewardGold, lastState?.settings.numberFormat ?? 'suffix')}</span> gold • <span class="mono">${formatPaladyum(report.rewardPoints)}</span> Paladyum</div>
+      <div class="muted">Reward: <span class="mono">${formatNumber(report.rewardGold, lastState?.settings.numberFormat ?? 'suffix')}</span> gold • <span class="mono">${formatPaladyumInt(report.rewardPoints)}</span> Paladyum</div>
       <div class="muted" style="margin-top:6px; color:${warn ? 'var(--danger)' : 'var(--neon-lime)'}">Penalty Multiplier: <span class="mono">x${report.penaltyFactor.toFixed(2)}</span></div>
     `
 

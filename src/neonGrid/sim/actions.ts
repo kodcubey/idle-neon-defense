@@ -1,6 +1,6 @@
 import type { GameConfig, GameState, TowerUpgradeKey } from '../types'
 import { clamp, aggregateModules } from './deterministic'
-import { moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from './costs'
+import { metaUpgradeCostPoints, moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from './costs'
 
 export function applyTowerUpgrade(args: {
   state: GameState
@@ -33,6 +33,93 @@ export function applyTowerUpgrade(args: {
   state.baseHP = clamp(state.baseHP, 0, maxHP)
 
   return { ok: true, state }
+}
+
+export function applyTowerMetaUpgrade(args: {
+  state: GameState
+  cfg: GameConfig
+  key: TowerUpgradeKey
+  amount: 1 | 10 | 'max'
+}): { ok: boolean; state: GameState } {
+  const { cfg, key } = args
+  const state: GameState = structuredClone(args.state)
+
+  if (!state.towerMetaUpgrades || typeof state.towerMetaUpgrades !== 'object') return { ok: false, state: args.state }
+
+  const cur = getUpgradeLevel({ ...state, towerUpgrades: state.towerMetaUpgrades } as any, key)
+  const maxL = upgradeMaxLevel(key, cfg)
+  if (cur >= maxL) return { ok: false, state: args.state }
+
+  const buyCountRaw = args.amount === 'max' ? maxAffordableMetaUpgrades(cur, state.points, cfg, key, maxL) : args.amount
+  const buyCount = Math.min(buyCountRaw, Math.max(0, maxL - cur))
+  if (buyCount <= 0) return { ok: false, state: args.state }
+
+  let total = 0
+  let L = cur
+  for (let i = 0; i < buyCount; i++) {
+    total += metaUpgradeCostPoints(key, L, cfg)
+    L++
+  }
+  if (state.points < total) return { ok: false, state: args.state }
+
+  state.points -= total
+
+  // Write meta level.
+  const nextMeta = cur + buyCount
+  ;(state.towerMetaUpgrades as any)[metaKeyFor(key)] = nextMeta
+
+  // Ensure current run starts at least from meta.
+  const curRun = getUpgradeLevel(state, key)
+  if (curRun < nextMeta) setUpgradeLevel(state, key, nextMeta)
+
+  // BaseHP track may increase max; clamp current HP.
+  const maxHP = calcBaseHPMax(state, cfg)
+  state.baseHP = clamp(state.baseHP, 0, maxHP)
+
+  return { ok: true, state }
+}
+
+function metaKeyFor(key: TowerUpgradeKey): keyof GameState['towerMetaUpgrades'] {
+  switch (key) {
+    case 'damage':
+      return 'damageLevel'
+    case 'fireRate':
+      return 'fireRateLevel'
+    case 'crit':
+      return 'critLevel'
+    case 'multiShot':
+      return 'multiShotLevel'
+    case 'armorPierce':
+      return 'armorPierceLevel'
+    case 'range':
+      return 'rangeLevel'
+    case 'baseHP':
+      return 'baseHPLevel'
+    case 'slow':
+      return 'slowLevel'
+    case 'fortify':
+      return 'fortifyLevel'
+    case 'repair':
+      return 'repairLevel'
+    case 'gold':
+      return 'goldLevel'
+  }
+}
+
+function maxAffordableMetaUpgrades(currentLevel: number, points: number, cfg: GameConfig, key: Parameters<typeof upgradeMaxLevel>[0], maxL: number): number {
+  let n = 0
+  let p = points
+  let L = Math.max(1, Math.floor(currentLevel))
+  for (let iter = 0; iter < 10_000; iter++) {
+    if (L >= maxL) break
+    const c = metaUpgradeCostPoints(key, L, cfg)
+    if (p < c) break
+    p -= c
+    L++
+    n++
+    if (n >= 10_000) break
+  }
+  return n
 }
 
 function maxAffordableUpgrades(currentLevel: number, gold: number, cfg: GameConfig, key: Parameters<typeof upgradeMaxLevel>[0], maxL: number): number {

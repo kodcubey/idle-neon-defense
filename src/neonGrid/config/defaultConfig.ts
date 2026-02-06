@@ -84,7 +84,7 @@ export const defaultConfig: GameConfig = {
     // Paladyum baseline per-wave reward (tiered by 10 waves).
     p0: 5,
     pointsGrowthPer10: 1.22,
-    paladyumDropRate: 0.01,
+    paladyumDropRate: 0.02,
 
     enableEscapeDamage: true,
     escapeDamage: 1.4,
@@ -166,13 +166,18 @@ export const defaultConfig: GameConfig = {
   economy: {
     upgradeCostBase: 12,
     upgradeCostGrowth: 1.17,
-    moduleUnlockPointCostBase: 22,
-    moduleUnlockPointCostGrowth: 1.38,
-    moduleUpgradeGoldBase: 12,
-    moduleUpgradeGoldGrowth: 1.18,
 
-    moduleSlotUnlockPointCostBase: 50,
-    moduleSlotUnlockPointCostGrowth: 1.85,
+    // Permanent upgrades (Paladyum / points)
+    metaUpgradeCostBasePoints: 55,
+    metaUpgradeCostGrowth: 1.23,
+
+    moduleUnlockPointCostBase: 22,
+    moduleUnlockPointCostGrowth: 1.45,
+    moduleUpgradeGoldBase: 65,
+    moduleUpgradeGoldGrowth: 1.25,
+
+    moduleSlotUnlockPointCostBase: 140,
+    moduleSlotUnlockPointCostGrowth: 2.05,
   },
 
   enemies: {

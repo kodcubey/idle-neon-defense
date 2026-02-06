@@ -45,6 +45,22 @@ export function createNewState(config: GameConfig, nowUTC: number): GameState {
     points: 0,
     paladyumCarry: 0,
     baseHP: config.tower.baseHP0,
+
+    towerMetaUpgrades: {
+      damageLevel: 1,
+      fireRateLevel: 1,
+      critLevel: 1,
+      multiShotLevel: 1,
+      rangeLevel: 1,
+      baseHPLevel: 1,
+
+      armorPierceLevel: 1,
+      slowLevel: 1,
+      fortifyLevel: 1,
+      repairLevel: 1,
+      goldLevel: 1,
+    },
+
     towerUpgrades: {
       damageLevel: 1,
       fireRateLevel: 1,
@@ -93,6 +109,15 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
     version: config.version,
   }
 
+  // Meta upgrades: fill missing, clamp, and ensure run upgrades never start below meta.
+  if (!(merged as any).towerMetaUpgrades || typeof (merged as any).towerMetaUpgrades !== 'object') {
+    ;(merged as any).towerMetaUpgrades = { ...base.towerMetaUpgrades }
+  }
+  merged.towerMetaUpgrades = { ...base.towerMetaUpgrades, ...(merged as any).towerMetaUpgrades }
+  for (const [k, v] of Object.entries(merged.towerMetaUpgrades as any)) {
+    ;(merged.towerMetaUpgrades as any)[k] = typeof v === 'number' && Number.isFinite(v) ? Math.max(1, Math.floor(v)) : 1
+  }
+
   // Settings: ensure object and force quality to HIGH (fixed).
   if (!merged.settings || typeof merged.settings !== 'object') merged.settings = { ...base.settings }
   merged.settings = { ...base.settings, ...merged.settings, quality: 'high' }
@@ -123,6 +148,14 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
   if (typeof (merged.towerUpgrades as any).repairLevel !== 'number') (merged.towerUpgrades as any).repairLevel = (base.towerUpgrades as any).repairLevel
   if (typeof (merged.towerUpgrades as any).goldLevel !== 'number') (merged.towerUpgrades as any).goldLevel = (base.towerUpgrades as any).goldLevel
 
+  // Ensure tower upgrades are at least the meta starting levels.
+  for (const [k, v] of Object.entries(merged.towerMetaUpgrades as any)) {
+    const metaL = typeof v === 'number' && Number.isFinite(v) ? Math.max(1, Math.floor(v)) : 1
+    const cur = (merged.towerUpgrades as any)[k]
+    const curL = typeof cur === 'number' && Number.isFinite(cur) ? Math.max(1, Math.floor(cur)) : 1
+    ;(merged.towerUpgrades as any)[k] = Math.max(curL, metaL)
+  }
+
   // Ensure module maps contain all defs.
   for (const def of config.modules.defs) {
     if (typeof merged.modulesUnlocked[def.id] !== 'boolean') merged.modulesUnlocked[def.id] = false
@@ -142,10 +175,8 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
   // Offline progression is disabled; always refresh the save timestamp on load.
   merged.lastSaveTimestampUTC = nowUTC
 
-  if (typeof (merged as any).paladyumCarry !== 'number' || !Number.isFinite((merged as any).paladyumCarry)) {
-    ;(merged as any).paladyumCarry = 0
-  }
-  ;(merged as any).paladyumCarry = Math.max(0, Math.min(1, (merged as any).paladyumCarry))
+  // Paladyum is integer-only now; carry is deprecated.
+  ;(merged as any).paladyumCarry = 0
   return merged
 }
 

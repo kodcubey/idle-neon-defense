@@ -16,6 +16,16 @@ export function upgradeCost(key: UpgradeKey, level: number, cfg: GameConfig): nu
   return mult * cfg.economy.upgradeCostBase * Math.pow(cfg.economy.upgradeCostGrowth, L - 1)
 }
 
+// Cost for buying the *next* permanent level when current permanent level is `level`.
+// Paid in Paladyum (points). Always integer.
+export function metaUpgradeCostPoints(key: UpgradeKey, level: number, cfg: GameConfig): number {
+  const L = Math.max(1, Math.floor(level))
+  const multRaw = cfg.tower.upgrades.costMult?.[key]
+  const mult = typeof multRaw === 'number' && Number.isFinite(multRaw) ? Math.max(0, multRaw) : 1
+  const raw = mult * cfg.economy.metaUpgradeCostBasePoints * Math.pow(cfg.economy.metaUpgradeCostGrowth, L - 1)
+  return Math.max(1, Math.ceil(raw))
+}
+
 export function moduleUnlockCostPoints(unlocksSoFar: number, cfg: GameConfig): number {
   const n = Math.max(0, Math.floor(unlocksSoFar))
   return Math.ceil(cfg.economy.moduleUnlockPointCostBase * Math.pow(cfg.economy.moduleUnlockPointCostGrowth, n))

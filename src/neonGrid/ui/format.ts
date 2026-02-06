@@ -39,11 +39,8 @@ export function formatNumber(v: number, mode: NumberFormat): string {
 }
 
 export function formatPaladyum(v: number): string {
-  if (!Number.isFinite(v)) return '∞'
-  const sign = v < 0 ? '-' : ''
-  const x = Math.abs(v)
-  // Always show up to 7 decimal places for Paladyum (e.g. 0.0000123)
-  return `${sign}${x.toFixed(7)}`
+  // Paladyum is integer-only.
+  return formatPaladyumInt(v)
 }
 
 export function formatPaladyumInt(v: number): string {
