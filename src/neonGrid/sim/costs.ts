@@ -21,6 +21,14 @@ export function moduleUnlockCostPoints(unlocksSoFar: number, cfg: GameConfig): n
   return Math.ceil(cfg.economy.moduleUnlockPointCostBase * Math.pow(cfg.economy.moduleUnlockPointCostGrowth, n))
 }
 
+// Slot purchase cost. First slot is free (state.moduleSlotsUnlocked starts at 1).
+// Cost is for buying the *next* slot beyond the currently unlocked count.
+export function moduleSlotUnlockCostPoints(currentSlotsUnlocked: number, cfg: GameConfig): number {
+  const s = Math.max(1, Math.floor(currentSlotsUnlocked))
+  const nPurchased = s - 1
+  return Math.ceil(cfg.economy.moduleSlotUnlockPointCostBase * Math.pow(cfg.economy.moduleSlotUnlockPointCostGrowth, nPurchased))
+}
+
 export function moduleUpgradeCostGold(level: number, cfg: GameConfig): number {
   const L = Math.max(0, Math.floor(level))
   return cfg.economy.moduleUpgradeGoldBase * Math.pow(cfg.economy.moduleUpgradeGoldGrowth, L)

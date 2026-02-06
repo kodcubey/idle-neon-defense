@@ -1,6 +1,6 @@
 import type { GameConfig, GameState } from '../types'
 import { clamp, aggregateModules } from './deterministic'
-import { moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from './costs'
+import { moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from './costs'
 
 export function applyTowerUpgrade(args: {
   state: GameState
@@ -114,8 +114,9 @@ function setUpgradeLevel(
 export function calcBaseHPMax(state: GameState, cfg: GameConfig): number {
   const L = Math.max(1, Math.floor(state.towerUpgrades.baseHPLevel))
   const base = cfg.tower.baseHP0 * Math.pow(1 + cfg.tower.baseHPGrowth, L - 1)
-  const modHP = aggregateModules(state, cfg).baseHPBonus
-  return Math.max(1, base + modHP)
+  const mods = aggregateModules(state, cfg)
+  const raw = base + mods.baseHPBonus
+  return Math.max(1, raw * mods.baseHPMult)
 }
 
 export function tryModuleUnlock(args: { state: GameState; cfg: GameConfig; id: string }): { ok: boolean; state: GameState } {
@@ -168,6 +169,22 @@ export function tryModuleUpgrade(args: {
   return { ok: true, state }
 }
 
+export function tryUnlockModuleSlot(args: { state: GameState; cfg: GameConfig }): { ok: boolean; state: GameState } {
+  const { cfg } = args
+  const state: GameState = structuredClone(args.state)
+
+  const max = Math.max(1, Math.floor(cfg.modules.slotCount))
+  const cur = Math.max(1, Math.floor(state.moduleSlotsUnlocked ?? 1))
+  if (cur >= max) return { ok: false, state: args.state }
+
+  const cost = moduleSlotUnlockCostPoints(cur, cfg)
+  if (state.points < cost) return { ok: false, state: args.state }
+
+  state.points -= cost
+  state.moduleSlotsUnlocked = cur + 1
+  return { ok: true, state }
+}
+
 function maxAffordableModuleLevels(currentLevel: number, points: number, cfg: GameConfig): number {
   let n = 0
   let p = points
@@ -193,7 +210,10 @@ export function equipModule(args: {
   const state: GameState = structuredClone(args.state)
 
   const s = Math.max(1, Math.floor(slot))
-  if (s < 1 || s > cfg.modules.slotCount) return { ok: false, state: args.state }
+  const max = Math.max(1, Math.floor(cfg.modules.slotCount))
+  const unlocked = Math.max(1, Math.floor(state.moduleSlotsUnlocked ?? 1))
+  if (s < 1 || s > max) return { ok: false, state: args.state }
+  if (s > unlocked) return { ok: false, state: args.state }
 
   if (args.id === null) {
     state.modulesEquipped[s] = null
@@ -202,6 +222,12 @@ export function equipModule(args: {
 
   const id = args.id
   if (!state.modulesUnlocked[id]) return { ok: false, state: args.state }
+
+  // A module card can only be equipped in one slot at a time.
+  for (const [k, v] of Object.entries(state.modulesEquipped)) {
+    const otherSlot = Math.max(1, Math.floor(Number(k)))
+    if (otherSlot !== s && v === id) state.modulesEquipped[otherSlot] = null
+  }
 
   state.modulesEquipped[s] = id
   // Clamp HP if needed.

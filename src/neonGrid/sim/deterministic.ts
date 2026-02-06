@@ -38,7 +38,12 @@ export type ModuleAggregate = {
   rangeBonus: number
   armorPierce: number
   baseHPBonus: number
+  baseHPMult: number
   goldMult: number
+
+  shotCount: number
+  invulnDurationSec: number
+  invulnCooldownSec: number
 }
 
 export function aggregateModules(state: GameState, cfg: GameConfig): ModuleAggregate {
@@ -51,9 +56,18 @@ export function aggregateModules(state: GameState, cfg: GameConfig): ModuleAggre
   let rangeBonus = 0
   let armorPierce = cfg.tower.armorPierce0
   let baseHPBonus = 0
+  let baseHPMult = 1
   let goldMult = 1
 
-  for (let slot = 1; slot <= cfg.modules.slotCount; slot++) {
+  let shotCount = 1
+  let invulnDurationSec = 0
+  let invulnCooldownSec = 0
+
+  const maxSlots = Math.max(1, Math.floor(cfg.modules.slotCount))
+  const unlockedSlots = Math.max(1, Math.floor(state.moduleSlotsUnlocked ?? 1))
+  const activeSlots = Math.min(maxSlots, unlockedSlots)
+
+  for (let slot = 1; slot <= activeSlots; slot++) {
     const id = state.modulesEquipped[slot]
     if (!id) continue
     if (!state.modulesUnlocked[id]) continue
@@ -61,7 +75,9 @@ export function aggregateModules(state: GameState, cfg: GameConfig): ModuleAggre
     const def = defsById.get(id)
     if (!def) continue
 
-    const level = Math.max(0, Math.floor(state.moduleLevels[id] ?? 0))
+    const rawLevel = Math.max(0, Math.floor(state.moduleLevels[id] ?? 0))
+    const levelCap = typeof def.maxEffectiveLevel === 'number' && Number.isFinite(def.maxEffectiveLevel) ? Math.max(0, Math.floor(def.maxEffectiveLevel)) : rawLevel
+    const level = Math.min(rawLevel, levelCap)
     if (level <= 0) continue
 
     if (def.dmgMultPerLevel) dmgMult *= 1 + def.dmgMultPerLevel * level
@@ -71,6 +87,19 @@ export function aggregateModules(state: GameState, cfg: GameConfig): ModuleAggre
     if (def.armorPiercePerLevel) armorPierce += def.armorPiercePerLevel * level
     if (def.baseHPBonusPerLevel) baseHPBonus += def.baseHPBonusPerLevel * level
     if (def.goldMultPerLevel) goldMult *= 1 + def.goldMultPerLevel * level
+
+    if (def.baseHPMultPerLevel) baseHPMult *= 1 + def.baseHPMultPerLevel * level
+
+    if (def.shotCountPerLevel) {
+      const cap = typeof def.shotCountCap === 'number' && Number.isFinite(def.shotCountCap) ? Math.max(1, Math.floor(def.shotCountCap)) : Number.POSITIVE_INFINITY
+      const add = Math.floor(def.shotCountPerLevel * level)
+      shotCount = Math.min(cap, Math.max(1, shotCount + Math.max(0, add)))
+    }
+
+    if (def.invulnDurationSecPerLevel && def.invulnCooldownSec) {
+      invulnDurationSec = Math.max(invulnDurationSec, Math.max(0, def.invulnDurationSecPerLevel * level))
+      invulnCooldownSec = Math.max(invulnCooldownSec, Math.max(0.1, def.invulnCooldownSec))
+    }
   }
 
   return {
@@ -80,7 +109,12 @@ export function aggregateModules(state: GameState, cfg: GameConfig): ModuleAggre
     rangeBonus,
     armorPierce: clamp(armorPierce, 0, 0.9),
     baseHPBonus,
+    baseHPMult: clamp(baseHPMult, 0.2, 3.0),
     goldMult,
+
+    shotCount: clamp(Math.floor(shotCount), 1, 8),
+    invulnDurationSec,
+    invulnCooldownSec,
   }
 }
 

@@ -6,7 +6,7 @@ import { createNewState } from '../persistence/save'
 import { btn, clear, el, hr, kv } from './dom'
 import { formatNumber, formatPaladyum, formatPaladyumInt, formatPct, formatTimeMMSS } from './format'
 import { calcPenaltyFactor, calcWaveSnapshot, clamp, calcDPS } from '../sim/deterministic'
-import { moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from '../sim/costs'
+import { moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from '../sim/costs'
 
 export type UIScreen = 'boot' | 'menu' | 'login' | 'hud' | 'modules' | 'settings' | 'stats' | 'offline'
 
@@ -1011,6 +1011,204 @@ export function createUIStateMachine(args: UIArgs) {
     bal.style.marginBottom = '8px'
     bal.innerHTML = `Paladyum: <span class="mono">${formatPaladyum(lastState.points)}</span>`
 
+    // Slots / Equip
+    const slotsPanel = el('div', 'panel')
+    const sh = el('div', 'panel-header')
+    sh.textContent = 'Slots'
+    const sb = el('div', 'panel-body')
+
+    const maxSlots = Math.max(1, Math.floor(config.modules.slotCount))
+    const unlockedSlots = Math.max(1, Math.min(maxSlots, Math.floor(lastState.moduleSlotsUnlocked ?? 1)))
+
+    const meta = el('div', 'muted')
+    meta.style.marginBottom = '8px'
+    meta.textContent = `Unlocked slots: ${unlockedSlots} / ${maxSlots}`
+    sb.appendChild(meta)
+
+    const unlockedDefs = config.modules.defs.filter((d) => !!lastState!.modulesUnlocked[d.id])
+    unlockedDefs.sort((a, b) => (a.category + a.nameTR).localeCompare(b.category + b.nameTR))
+
+    const equippedIds = new Set<string>()
+    for (let s = 1; s <= maxSlots; s++) {
+      const id = lastState.modulesEquipped[s]
+      if (id) equippedIds.add(id)
+    }
+
+    const setEquip = (slot: number, id: string | null) => {
+      if (!game) return false
+      const ok = game.equipModule(slot, id)
+      if (!ok) return false
+      lastState = game.getSnapshot()
+      render()
+      return true
+    }
+
+    const slotsGrid = el('div')
+    slotsGrid.style.display = 'grid'
+    slotsGrid.style.gridTemplateColumns = 'repeat(auto-fit, minmax(150px, 1fr))'
+    slotsGrid.style.gap = '8px'
+
+    const getModuleLabel = (id: string) => {
+      const def = config.modules.defs.find((d) => d.id === id)
+      const L = Math.max(0, Math.floor(lastState!.moduleLevels[id] ?? 0))
+      return def ? `${def.nameTR} (Lv ${L})` : `${id} (Lv ${L})`
+    }
+
+    for (let s = 1; s <= maxSlots; s++) {
+      const slotBox = el('div', 'panel')
+      slotBox.style.cursor = s <= unlockedSlots ? 'pointer' : 'not-allowed'
+      ;(slotBox as any).dataset.ngSlot = String(s)
+
+      const hh = el('div', 'panel-header')
+      const left = el('div')
+      left.textContent = `Slot ${s}`
+      const right = el('div', 'muted mono')
+      right.textContent = s <= unlockedSlots ? 'DROP' : 'LOCKED'
+      hh.append(left, right)
+
+      const bb = el('div', 'panel-body')
+      bb.style.minHeight = '56px'
+
+      const equippedId = lastState.modulesEquipped[s] ?? null
+      if (s <= unlockedSlots) {
+        bb.textContent = ''
+
+        if (!equippedId) {
+          const empty = el('div', 'mono')
+          empty.textContent = 'Empty'
+          bb.appendChild(empty)
+        } else {
+          const def = config.modules.defs.find((d) => d.id === equippedId)
+          const level = Math.max(0, Math.floor(lastState!.moduleLevels[equippedId] ?? 0))
+          const cost = moduleUpgradeCostPoints(level, config)
+
+          const title = el('div', 'mono')
+          title.style.marginBottom = '6px'
+          title.textContent = getModuleLabel(equippedId)
+
+          const effect = el('div', 'muted')
+          effect.style.fontSize = '12px'
+          effect.style.marginBottom = '6px'
+          effect.textContent = def ? moduleEffectText(def) : ''
+
+          const actions = el('div', 'stack')
+          const b1 = btn(`+1 (${formatPaladyumInt(cost)})`, 'btn')
+          b1.onclick = () => {
+            if (!game) return
+            const ok = game.upgradeModule(equippedId, 1)
+            if (!ok) {
+              flashFail(b1)
+              return
+            }
+            lastState = game.getSnapshot()
+            render()
+          }
+          const b10 = btn('+10', 'btn')
+          b10.onclick = () => {
+            if (!game) return
+            const ok = game.upgradeModule(equippedId, 10)
+            if (!ok) {
+              flashFail(b10)
+              return
+            }
+            lastState = game.getSnapshot()
+            render()
+          }
+          const bM = btn('+Max', 'btn')
+          bM.onclick = () => {
+            if (!game) return
+            const ok = game.upgradeModule(equippedId, 'max')
+            if (!ok) {
+              flashFail(bM)
+              return
+            }
+            lastState = game.getSnapshot()
+            render()
+          }
+          actions.append(kv('Level', String(level), true), b1, b10, bM)
+
+          bb.append(title, effect, actions)
+        }
+
+        // Click to unequip (minimal removal UX).
+        slotBox.onclick = () => {
+          const cur = lastState!.modulesEquipped[s] ?? null
+          if (!cur) return
+          void setEquip(s, null)
+        }
+
+        // Drag from slot -> slot.
+        if (equippedId) {
+          slotBox.draggable = true
+          slotBox.ondragstart = (e) => {
+            const dt = (e as DragEvent).dataTransfer
+            if (!dt) return
+            dt.setData('text/plain', equippedId)
+            dt.setData('application/x-neongrid-source-slot', String(s))
+            dt.effectAllowed = 'move'
+          }
+        }
+
+        // Drop target.
+        slotBox.ondragover = (e) => {
+          e.preventDefault()
+          slotBox.style.outline = `2px solid ${config.ui.palette.neonCyan}`
+          slotBox.style.outlineOffset = '2px'
+        }
+        slotBox.ondragleave = () => {
+          slotBox.style.outline = ''
+          slotBox.style.outlineOffset = ''
+        }
+        slotBox.ondrop = (e) => {
+          e.preventDefault()
+          slotBox.style.outline = ''
+          slotBox.style.outlineOffset = ''
+
+          const dt = (e as DragEvent).dataTransfer
+          const id = dt?.getData('text/plain')?.trim() || ''
+          if (!id) return
+
+          const srcSlotRaw = dt?.getData('application/x-neongrid-source-slot')
+          const srcSlot = srcSlotRaw ? Math.max(1, Math.floor(Number(srcSlotRaw))) : null
+
+          const ok = setEquip(s, id)
+          if (!ok) return
+
+          // If the drag originated from another slot, clear it (move semantics).
+          if (srcSlot && srcSlot !== s) {
+            void setEquip(srcSlot, null)
+          }
+        }
+      } else {
+        bb.textContent = 'Locked'
+        bb.classList.add('muted')
+      }
+
+      slotBox.append(hh, bb)
+      slotsGrid.appendChild(slotBox)
+    }
+
+    sb.appendChild(slotsGrid)
+
+    if (unlockedSlots < maxSlots) {
+      const cost = moduleSlotUnlockCostPoints(unlockedSlots, config)
+      const buy = btn(`Buy Slot (${formatPaladyumInt(cost)} Paladyum)`, 'btn btn-primary')
+      buy.style.marginTop = '10px'
+      buy.onclick = () => {
+        if (!game) return
+        const ok = game.unlockModuleSlot()
+        if (!ok) {
+          flashFail(buy)
+          return
+        }
+        lastState = game.getSnapshot()
+        render()
+      }
+      sb.appendChild(buy)
+    }
+
+    slotsPanel.append(sh, sb)
+
     // Filter row
     const filterRow = el('div', 'stack')
     const mkFilter = (label: string, f: typeof modulesFilter) => {
@@ -1026,7 +1224,12 @@ export function createUIStateMachine(args: UIArgs) {
     filterRow.append(mkFilter('All', 'ALL'), mkFilter('Offense', 'OFFENSE'), mkFilter('Defense', 'DEFENSE'), mkFilter('Utility', 'UTILITY'))
 
     // Filter modules
-    const filtered = config.modules.defs.filter((d) => modulesFilter === 'ALL' || d.category === modulesFilter)
+    // Show locked modules (store), and show only unequipped unlocked modules (inventory).
+    const filtered = config.modules.defs.filter((d) => {
+      if (!(modulesFilter === 'ALL' || d.category === modulesFilter)) return false
+      if (!lastState!.modulesUnlocked[d.id]) return true
+      return !equippedIds.has(d.id)
+    })
     const totalPages = Math.max(1, Math.ceil(filtered.length / MODULES_PER_PAGE))
     if (modulesPage >= totalPages) modulesPage = totalPages - 1
     const pageItems = filtered.slice(modulesPage * MODULES_PER_PAGE, (modulesPage + 1) * MODULES_PER_PAGE)
@@ -1041,6 +1244,16 @@ export function createUIStateMachine(args: UIArgs) {
 
     for (const def of pageItems) {
       const card = el('div', 'panel')
+      if (lastState.modulesUnlocked[def.id]) {
+        card.draggable = true
+        card.style.cursor = 'grab'
+        card.ondragstart = (e) => {
+          const dt = (e as DragEvent).dataTransfer
+          if (!dt) return
+          dt.setData('text/plain', def.id)
+          dt.effectAllowed = 'move'
+        }
+      }
       const ch = el('div', 'panel-header')
       const name = el('div')
       name.textContent = def.nameTR
@@ -1126,20 +1339,32 @@ export function createUIStateMachine(args: UIArgs) {
 
     pager.append(prevBtn, pageLabel, nextBtn)
 
-    body.append(bal, filterRow, list, pager)
+    body.append(bal, slotsPanel, filterRow, list, pager)
     panel.append(header, body)
     center.appendChild(panel)
   }
 
   function moduleEffectText(def: GameConfig['modules']['defs'][number]): string {
     const parts: string[] = []
-    if (def.dmgMultPerLevel) parts.push(`Damage Multiplier: +${(def.dmgMultPerLevel * 100).toFixed(1)}% / level`)
-    if (def.dmgFlatPerLevel) parts.push(`Flat Damage: +${def.dmgFlatPerLevel} / level`)
-    if (def.fireRateBonusPerLevel) parts.push(`Fire Rate: +${(def.fireRateBonusPerLevel * 100).toFixed(1)}% / level`)
-    if (def.rangeBonusPerLevel) parts.push(`Range: +${def.rangeBonusPerLevel} / level`)
-    if (def.armorPiercePerLevel) parts.push(`Armor Pierce: +${(def.armorPiercePerLevel * 100).toFixed(1)}% / level`)
-    if (def.baseHPBonusPerLevel) parts.push(`Base HP: +${def.baseHPBonusPerLevel} / level`)
-    if (def.goldMultPerLevel) parts.push(`Gold Multiplier: +${(def.goldMultPerLevel * 100).toFixed(1)}% / level`)
+    const pct = (v: number) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`
+
+    if (def.dmgMultPerLevel) parts.push(`Damage: ${pct(def.dmgMultPerLevel)} / level`)
+    if (def.dmgFlatPerLevel) parts.push(`Flat Damage: ${def.dmgFlatPerLevel >= 0 ? '+' : ''}${def.dmgFlatPerLevel} / level`)
+    if (def.fireRateBonusPerLevel) parts.push(`Fire Rate: ${pct(def.fireRateBonusPerLevel)} / level`)
+    if (def.rangeBonusPerLevel) parts.push(`Range: ${def.rangeBonusPerLevel >= 0 ? '+' : ''}${def.rangeBonusPerLevel} / level`)
+    if (def.armorPiercePerLevel) parts.push(`Armor Pierce: ${pct(def.armorPiercePerLevel)} / level`)
+    if (def.baseHPBonusPerLevel) parts.push(`Base HP: ${def.baseHPBonusPerLevel >= 0 ? '+' : ''}${def.baseHPBonusPerLevel} / level`)
+    if (def.baseHPMultPerLevel) parts.push(`Max HP Mult: ${pct(def.baseHPMultPerLevel)} / level`)
+    if (def.goldMultPerLevel) parts.push(`Gold Mult: ${pct(def.goldMultPerLevel)} / level`)
+
+    if (def.shotCountPerLevel) {
+      const cap = typeof def.shotCountCap === 'number' ? ` (cap ${Math.max(1, Math.floor(def.shotCountCap))})` : ''
+      parts.push(`Ability: Multi-shot (+${def.shotCountPerLevel} shots/level, floored)${cap}`)
+    }
+    if (def.invulnDurationSecPerLevel && def.invulnCooldownSec) {
+      parts.push(`Ability: Invuln vs escapes (${def.invulnDurationSecPerLevel.toFixed(2)}s/level, every ${def.invulnCooldownSec}s)`)
+    }
+    if (typeof def.maxEffectiveLevel === 'number') parts.push(`Balance cap: effective Lv ≤ ${Math.max(0, Math.floor(def.maxEffectiveLevel))}`)
 
     return parts.length ? parts.join(' • ') : 'Effect: (not defined)'
   }

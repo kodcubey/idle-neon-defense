@@ -57,6 +57,7 @@ export function createNewState(config: GameConfig, nowUTC: number): GameState {
     modulesUnlocked,
     modulesEquipped,
     moduleLevels,
+    moduleSlotsUnlocked: 1,
     prestigePoints: 0,
     settings: defaultSettings(),
     stats: defaultStats(),
@@ -123,6 +124,11 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
   for (let s = 1; s <= config.modules.slotCount; s++) {
     if (!(s in merged.modulesEquipped)) merged.modulesEquipped[s] = null
   }
+
+  if (typeof (merged as any).moduleSlotsUnlocked !== 'number' || !Number.isFinite((merged as any).moduleSlotsUnlocked)) {
+    ;(merged as any).moduleSlotsUnlocked = 1
+  }
+  ;(merged as any).moduleSlotsUnlocked = Math.max(1, Math.min(config.modules.slotCount, Math.floor((merged as any).moduleSlotsUnlocked)))
 
   // Offline progression is disabled; always refresh the save timestamp on load.
   merged.lastSaveTimestampUTC = nowUTC

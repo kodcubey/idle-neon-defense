@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import type { GameConfig, GameState, RunSummary, WaveReport } from '../types'
 import { SimEngine, type SimCallbacks, type SimPublic } from '../sim/SimEngine'
 import { createNewState } from '../persistence/save'
-import { applyTowerUpgrade, equipModule, tryModuleUnlock, tryModuleUpgrade } from '../sim/actions'
+import { applyTowerUpgrade, equipModule, tryModuleUnlock, tryModuleUpgrade, tryUnlockModuleSlot } from '../sim/actions'
 import { BootScene } from './scenes/BootScene'
 import { GameScene } from './scenes/GameScene'
 
@@ -22,6 +22,8 @@ export type NeonGridGame = {
   unlockModule: (id: string) => boolean
   upgradeModule: (id: string, amount: 1 | 10 | 'max') => boolean
   equipModule: (slot: number, id: string | null) => boolean
+
+  unlockModuleSlot: () => boolean
 
   onSim: (cb: (pub: SimPublic) => void) => void
 }
@@ -210,6 +212,14 @@ export function createGame(args: {
     equipModule: (slot, id) => {
       const s = currentState()
       const next = equipModule({ state: s, cfg, slot, id })
+      if (!next.ok) return false
+      applyState(next.state, 'soft')
+      return true
+    },
+
+    unlockModuleSlot: () => {
+      const s = currentState()
+      const next = tryUnlockModuleSlot({ state: s, cfg })
       if (!next.ok) return false
       applyState(next.state, 'soft')
       return true

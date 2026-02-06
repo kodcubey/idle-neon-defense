@@ -117,6 +117,9 @@ export class SimEngine {
   private towerPos: Vec2 = { x: 0, y: 0 }
   private towerCooldown = 0
 
+  private invulnRemainingSec = 0
+  private invulnCooldownRemainingSec = 0
+
   private arena: {
     center: Vec2
     bounds: { left: number; top: number; right: number; bottom: number }
@@ -292,12 +295,18 @@ export class SimEngine {
 
     const scaled = dtSec * this.timeScale
 
+    // Utility abilities (deterministic; time-based).
+    this.invulnRemainingSec = Math.max(0, this.invulnRemainingSec - scaled)
+    this.invulnCooldownRemainingSec = Math.max(0, this.invulnCooldownRemainingSec - scaled)
+
     this.waveTimeSec += scaled
     this._state.stats.totalTimeSec += scaled
 
     // Defense: deterministic self-repair (regen) based on max HP.
     // Applied continuously while unpaused.
     this.applyTowerRepair(scaled)
+
+    this.maybeTriggerInvulnerability()
 
     this.spawnEnemiesUpToTime(this.waveTimeSec)
     this.stepEnemies(scaled)
@@ -326,11 +335,14 @@ export class SimEngine {
     this.projectiles = []
     this.spawnCursor = 0
     this.towerCooldown = 0
+    this.invulnRemainingSec = 0
+    this.invulnCooldownRemainingSec = 0
   }
 
   private applyEscapeDamageNow(count: number) {
     if (!this.cfg.progression.enableEscapeDamage) return
     if (count <= 0) return
+    if (this.invulnRemainingSec > 0) return
 
     const N = Math.max(1, this.snapshot.spawnCount)
     const killRatioNow = clamp(this.killed / N, 0, 1)
@@ -450,11 +462,12 @@ export class SimEngine {
     const fireRateNow = Math.max(0.1, pub.tower.fireRate)
     const cd = 1 / fireRateNow
 
-    const target = this.pickTarget(pub)
-    if (!target) return
+    const mods = aggregateModules(this._state, this.cfg)
+    const targets = this.pickTargets(pub, mods.shotCount)
+    if (targets.length === 0) return
 
-    // Spawn a visible projectile; damage is applied on impact.
-    this.spawnProjectile(target.id)
+    // Spawn visible projectiles; damage is applied on impact.
+    for (const t of targets) this.spawnProjectile(t.id)
 
     this.towerCooldown = cd
   }
@@ -515,11 +528,9 @@ export class SimEngine {
     if (this.projectiles.length > 900) this.projectiles = this.projectiles.filter((p) => p.alive)
   }
 
-  private pickTarget(pub: SimPublic): EnemyEntity | null {
-    // Deterministic target rule: closest to base (highest progress) within range.
-    let best: EnemyEntity | null = null
-    let bestProgress = -1
-    let bestId = Number.POSITIVE_INFINITY
+  private pickTargets(pub: SimPublic, count: number): EnemyEntity[] {
+    const n = Math.max(1, Math.floor(count))
+    const inRange: { e: EnemyEntity; progress: number }[] = []
 
     for (const e of this.enemies) {
       if (!e.alive) continue
@@ -529,14 +540,15 @@ export class SimEngine {
       if (dist > pub.tower.range) continue
 
       const progress = 1 - clamp(dist / Math.max(1, this.arena.maxSpawnDist), 0, 1)
-      if (progress > bestProgress || (progress === bestProgress && e.id < bestId)) {
-        bestProgress = progress
-        bestId = e.id
-        best = e
-      }
+      inRange.push({ e, progress })
     }
 
-    return best
+    inRange.sort((a, b) => {
+      if (b.progress !== a.progress) return b.progress - a.progress
+      return a.e.id - b.e.id
+    })
+
+    return inRange.slice(0, n).map((r) => r.e)
   }
 
   private computeDamage(pub: SimPublic, e: EnemyEntity): number {
@@ -555,12 +567,26 @@ export class SimEngine {
     const mods = aggregateModules(this._state, this.cfg)
     const baseHPLevel = Math.max(1, Math.floor(this._state.towerUpgrades.baseHPLevel))
     const base = this.cfg.tower.baseHP0 * Math.pow(1 + this.cfg.tower.baseHPGrowth, baseHPLevel - 1)
-    const maxHP = Math.max(1, base + mods.baseHPBonus)
+    const maxHP = Math.max(1, (base + mods.baseHPBonus) * mods.baseHPMult)
 
     // Repair heals a fraction of *missing* HP per second. This avoids instantly refilling
     // to full when only slightly damaged, while still allowing meaningful recovery.
     const missing = Math.max(0, maxHP - this._state.baseHP)
     this._state.baseHP = clamp(this._state.baseHP + missing * pct * dtSec, 0, maxHP)
+  }
+
+  private maybeTriggerInvulnerability() {
+    const mods = aggregateModules(this._state, this.cfg)
+    const duration = mods.invulnDurationSec
+    const cooldown = mods.invulnCooldownSec
+
+    if (duration <= 0 || cooldown <= 0) return
+    if (this.invulnRemainingSec > 0) return
+    if (this.invulnCooldownRemainingSec > 0) return
+    if (this.enemies.length === 0) return
+
+    this.invulnRemainingSec = duration
+    this.invulnCooldownRemainingSec = cooldown
   }
 
   private finishWave() {

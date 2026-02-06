@@ -19,6 +19,9 @@ export type ModuleDef = {
   category: ModuleCategory
   iconConcept: string
 
+  // Level cap for balance (effects clamp to this level).
+  maxEffectiveLevel?: number
+
   dmgMultPerLevel?: number
   dmgFlatPerLevel?: number
   fireRateBonusPerLevel?: number
@@ -26,7 +29,19 @@ export type ModuleDef = {
   armorPiercePerLevel?: number
   baseHPBonusPerLevel?: number
 
+  // Multiplicative max HP change (e.g. -0.02 => -2% max HP per effective level).
+  baseHPMultPerLevel?: number
+
   goldMultPerLevel?: number
+
+  // Utility abilities (deterministic; no manual activation).
+  // Shot count is computed as 1 + floor(shotCountPerLevel * effectiveLevel), then capped.
+  shotCountPerLevel?: number
+  shotCountCap?: number
+
+  // Periodic invulnerability to escape damage.
+  invulnDurationSecPerLevel?: number
+  invulnCooldownSec?: number
 }
 
 export type EnemyTypeDef = {
@@ -171,6 +186,9 @@ export type GameConfig = {
     moduleUnlockPointCostGrowth: number
     moduleUpgradeGoldBase: number
     moduleUpgradeGoldGrowth: number
+
+    moduleSlotUnlockPointCostBase: number
+    moduleSlotUnlockPointCostGrowth: number
   }
 
   enemies: {
@@ -217,6 +235,9 @@ export type GameState = {
   modulesUnlocked: Record<string, boolean>
   modulesEquipped: Record<number, string | null> // slot -> moduleId
   moduleLevels: Record<string, number>
+
+  // Starts at 1; can be increased up to config.modules.slotCount.
+  moduleSlotsUnlocked: number
 
   prestigePoints: number
   settings: Settings

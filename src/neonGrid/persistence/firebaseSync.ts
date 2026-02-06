@@ -20,6 +20,7 @@ export type MetaSaveV1 = {
   modulesUnlocked: GameState['modulesUnlocked']
   moduleLevels: GameState['moduleLevels']
   modulesEquipped: GameState['modulesEquipped']
+  moduleSlotsUnlocked?: number
 }
 
 export function extractMetaFromState(state: GameState): MetaSaveV1 {
@@ -32,6 +33,7 @@ export function extractMetaFromState(state: GameState): MetaSaveV1 {
     modulesUnlocked: { ...state.modulesUnlocked },
     moduleLevels: { ...state.moduleLevels },
     modulesEquipped: { ...state.modulesEquipped },
+    moduleSlotsUnlocked: state.moduleSlotsUnlocked,
   }
 }
 
@@ -45,6 +47,10 @@ export function applyMetaToState(current: GameState, meta: MetaSaveV1): GameStat
     modulesUnlocked: { ...current.modulesUnlocked, ...meta.modulesUnlocked },
     moduleLevels: { ...current.moduleLevels, ...meta.moduleLevels },
     modulesEquipped: { ...current.modulesEquipped, ...meta.modulesEquipped },
+    moduleSlotsUnlocked:
+      typeof meta.moduleSlotsUnlocked === 'number' && Number.isFinite(meta.moduleSlotsUnlocked)
+        ? Math.max(1, Math.floor(meta.moduleSlotsUnlocked))
+        : current.moduleSlotsUnlocked,
   }
 }
 
