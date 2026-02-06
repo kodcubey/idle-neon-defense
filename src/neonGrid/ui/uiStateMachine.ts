@@ -1381,15 +1381,54 @@ export function createUIStateMachine(args: UIArgs) {
 
     const c = btn('Continue', 'btn btn-primary')
     const overlay = mountModal(modal)
-    c.onclick = () => {
+    const AUTO_CLOSE_SEC = 10
+    const startedAt = performance.now()
+    let done = false
+    const finish = () => {
+      if (done) return
+      done = true
+      clearInterval(tick)
       overlay.remove()
       game?.continueNextWave()
     }
 
+    c.onclick = () => finish()
+
+    const autoBox = el('div', 'muted')
+    autoBox.style.marginTop = '10px'
+    autoBox.style.fontSize = '12px'
+
+    const autoLabel = el('div', 'mono')
+    autoLabel.style.marginBottom = '6px'
+
+    const barOuter = el('div')
+    barOuter.style.height = '6px'
+    barOuter.style.borderRadius = '999px'
+    barOuter.style.background = 'var(--stroke)'
+    barOuter.style.overflow = 'hidden'
+
+    const barInner = el('div')
+    barInner.style.height = '100%'
+    barInner.style.width = '0%'
+    barInner.style.background = 'var(--neon-lime)'
+    barOuter.appendChild(barInner)
+
+    autoBox.append(autoLabel, barOuter)
+
+    const tick = window.setInterval(() => {
+      if (done) return
+      const elapsed = (performance.now() - startedAt) / 1000
+      const left = Math.max(0, AUTO_CLOSE_SEC - elapsed)
+      const progress = Math.max(0, Math.min(1, elapsed / AUTO_CLOSE_SEC))
+      autoLabel.textContent = `Auto-continue in ${left.toFixed(1)}s`
+      barInner.style.width = `${(progress * 100).toFixed(2)}%`
+      if (left <= 0) finish()
+    }, 100)
+
     const row = el('div', 'stack')
     row.style.marginTop = '10px'
     row.appendChild(c)
-    b.appendChild(row)
+    b.append(row, autoBox)
 
     modal.append(h, b)
   }
