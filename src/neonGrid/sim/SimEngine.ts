@@ -178,6 +178,21 @@ export class SimEngine {
     return { ...this._state }
   }
 
+  // Apply player-state changes (upgrades, settings, module changes) without
+  // resetting the current wave runtime. This preserves enemies/projectiles and
+  // keeps the wave snapshot fixed for determinism.
+  applyStateSoft(state: GameState) {
+    // If wave changed, fall back to a full reset.
+    if (Math.floor(state.wave) !== Math.floor(this._state.wave)) {
+      this.setSnapshot(state)
+      return
+    }
+
+    this._state = { ...state }
+    // Do NOT recompute snapshot, wave time, spawn plan, or runtime counters.
+    this.cb.onStateChanged(this._state)
+  }
+
   setSnapshot(state: GameState) {
     this._state = { ...state }
     this.snapshot = calcWaveSnapshot(this._state, this.cfg)

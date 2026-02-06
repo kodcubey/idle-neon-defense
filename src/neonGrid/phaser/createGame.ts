@@ -8,7 +8,7 @@ import { GameScene } from './scenes/GameScene'
 
 export type NeonGridGame = {
   getSnapshot: () => GameState
-  setSnapshot: (s: GameState) => void
+  setSnapshot: (s: GameState, mode?: 'soft' | 'hard') => void
   setPaused: (p: boolean) => void
   isPaused: () => boolean
   setTimeScale: (s: 1 | 2 | 3) => void
@@ -125,12 +125,16 @@ export function createGame(args: {
     return pendingPaused ?? false
   }
 
-  function applyState(next: GameState) {
+  function applyState(next: GameState, mode: 'soft' | 'hard' = 'soft') {
     pendingSnapshot = { ...next }
     // Quality is fixed to HIGH.
     pendingSnapshot.settings = { ...pendingSnapshot.settings, quality: 'high' }
     syncPendingToBridge()
-    if (engine) engine.setSnapshot(pendingSnapshot)
+
+    if (engine) {
+      if (mode === 'hard') engine.setSnapshot(pendingSnapshot)
+      else engine.applyStateSoft(pendingSnapshot)
+    }
 
     // Sync audio master volume (UI setting).
     try {
@@ -142,7 +146,7 @@ export function createGame(args: {
 
   return {
     getSnapshot: () => currentState(),
-    setSnapshot: (s) => applyState(s),
+    setSnapshot: (s, mode) => applyState(s, mode ?? 'soft'),
     setPaused: (p) => {
       const prev = currentPaused()
       pendingPaused = p
@@ -177,7 +181,7 @@ export function createGame(args: {
       s.prestigePoints = prev.prestigePoints
       s.settings = { ...prev.settings }
 
-      applyState(s)
+      applyState(s, 'hard')
       pendingPaused = false
       if (engine) engine.setPaused(false)
     },
@@ -186,7 +190,7 @@ export function createGame(args: {
       const s = currentState()
       const next = applyTowerUpgrade({ state: s, cfg, key, amount })
       if (!next.ok) return false
-      applyState(next.state)
+      applyState(next.state, 'soft')
       return true
     },
 
@@ -194,7 +198,7 @@ export function createGame(args: {
       const s = currentState()
       const next = tryModuleUnlock({ state: s, cfg, id })
       if (!next.ok) return false
-      applyState(next.state)
+      applyState(next.state, 'soft')
       return true
     },
 
@@ -202,7 +206,7 @@ export function createGame(args: {
       const s = currentState()
       const next = tryModuleUpgrade({ state: s, cfg, id, amount })
       if (!next.ok) return false
-      applyState(next.state)
+      applyState(next.state, 'soft')
       return true
     },
 
@@ -210,7 +214,7 @@ export function createGame(args: {
       const s = currentState()
       const next = equipModule({ state: s, cfg, slot, id })
       if (!next.ok) return false
-      applyState(next.state)
+      applyState(next.state, 'soft')
       return true
     },
 
@@ -228,7 +232,7 @@ export function createGame(args: {
 
       next.stats.runsCount = (s.stats.runsCount ?? 0) + 1
       next.stats.bestWave = Math.max(next.stats.bestWave, 1)
-      applyState(next)
+      applyState(next, 'hard')
       pendingPaused = false
       if (engine) engine.setPaused(false)
       return { ok: true, gained }

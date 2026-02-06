@@ -34,6 +34,8 @@ export function createUIStateMachine(args: UIArgs) {
   let initialCloudSyncInProgress = false
   let resetRequested = false
 
+  let upgradesTab: 'attack' | 'defense' | 'utility' = 'attack'
+
   // In dev/HMR or accidental re-init, multiple UI layers can stack and swallow clicks.
   // Reset the UI root so only one active layer exists.
   clear(root)
@@ -197,7 +199,7 @@ export function createUIStateMachine(args: UIArgs) {
   function setFreshLocalSnapshot(forceMenuPause: boolean) {
     if (!game) return
     const fresh = createNewState(config, Date.now())
-    game.setSnapshot(fresh)
+    game.setSnapshot(fresh, 'hard')
     lastState = game.getSnapshot()
     if (forceMenuPause) {
       game.setPaused(true)
@@ -852,19 +854,24 @@ export function createUIStateMachine(args: UIArgs) {
       const uh = el('div', 'panel-header')
       uh.textContent = 'Upgrades'
       const ub = el('div', 'panel-body')
-      ub.appendChild(renderUpgradeSection('Attack'))
-      ub.appendChild(renderUpgradeRow('Damage', 'damage', state.towerUpgrades.damageLevel))
-      ub.appendChild(renderUpgradeRow('Fire Rate', 'fireRate', state.towerUpgrades.fireRateLevel))
-      ub.appendChild(renderUpgradeRow('Armor Piercing', 'armorPierce', (state.towerUpgrades as any).armorPierceLevel))
+      ub.appendChild(
+        renderUpgradesTabs(() => {
+          render()
+        }),
+      )
 
-      ub.appendChild(renderUpgradeSection('Defense'))
-      ub.appendChild(renderUpgradeRow('Base HP', 'baseHP', state.towerUpgrades.baseHPLevel))
-      ub.appendChild(renderUpgradeRow('Fortify (Escape DR)', 'fortify', (state.towerUpgrades as any).fortifyLevel))
-      ub.appendChild(renderUpgradeRow('Repair (Regen)', 'repair', (state.towerUpgrades as any).repairLevel))
-
-      ub.appendChild(renderUpgradeSection('Utility'))
-      ub.appendChild(renderUpgradeRow('Range', 'range', state.towerUpgrades.rangeLevel))
-      ub.appendChild(renderUpgradeRow('Gold Finder', 'gold', (state.towerUpgrades as any).goldLevel))
+      if (upgradesTab === 'attack') {
+        ub.appendChild(renderUpgradeRow('Damage', 'damage', state.towerUpgrades.damageLevel))
+        ub.appendChild(renderUpgradeRow('Fire Rate', 'fireRate', state.towerUpgrades.fireRateLevel))
+        ub.appendChild(renderUpgradeRow('Armor Piercing', 'armorPierce', (state.towerUpgrades as any).armorPierceLevel))
+      } else if (upgradesTab === 'defense') {
+        ub.appendChild(renderUpgradeRow('Base HP', 'baseHP', state.towerUpgrades.baseHPLevel))
+        ub.appendChild(renderUpgradeRow('Fortify (Escape DR)', 'fortify', (state.towerUpgrades as any).fortifyLevel))
+        ub.appendChild(renderUpgradeRow('Repair (Regen)', 'repair', (state.towerUpgrades as any).repairLevel))
+      } else {
+        ub.appendChild(renderUpgradeRow('Range', 'range', state.towerUpgrades.rangeLevel))
+        ub.appendChild(renderUpgradeRow('Gold Finder', 'gold', (state.towerUpgrades as any).goldLevel))
+      }
 
       const liveTitle = el('div')
       liveTitle.textContent = 'Live'
@@ -895,12 +902,25 @@ export function createUIStateMachine(args: UIArgs) {
     }
   }
 
-  function renderUpgradeSection(title: string): HTMLElement {
-    const box = el('div', 'muted')
-    box.style.marginTop = '6px'
-    box.style.fontWeight = '800'
-    box.textContent = title
-    return box
+  function renderUpgradesTabs(onChanged: () => void): HTMLElement {
+    const row = el('div', 'stack')
+    row.style.marginBottom = '10px'
+    row.style.flexWrap = 'wrap'
+
+    const mk = (label: string, value: typeof upgradesTab) => {
+      const b = btn(label, 'btn')
+      const active = upgradesTab === value
+      b.classList.toggle('is-selected', active)
+      b.setAttribute('aria-pressed', active ? 'true' : 'false')
+      b.onclick = () => {
+        upgradesTab = value
+        onChanged()
+      }
+      return b
+    }
+
+    row.append(mk('Attack', 'attack'), mk('Defense', 'defense'), mk('Utility', 'utility'))
+    return row
   }
 
   function renderUpgradeRow(
@@ -1287,19 +1307,25 @@ export function createUIStateMachine(args: UIArgs) {
     h.append(title, close)
 
     const b = el('div', 'panel-body')
-    b.appendChild(renderUpgradeSection('Attack'))
-    b.appendChild(renderUpgradeRow('Damage', 'damage', lastState.towerUpgrades.damageLevel))
-    b.appendChild(renderUpgradeRow('Fire Rate', 'fireRate', lastState.towerUpgrades.fireRateLevel))
-    b.appendChild(renderUpgradeRow('Armor Piercing', 'armorPierce', (lastState.towerUpgrades as any).armorPierceLevel))
+    b.appendChild(
+      renderUpgradesTabs(() => {
+        overlay.remove()
+        showUpgradesModal()
+      }),
+    )
 
-    b.appendChild(renderUpgradeSection('Defense'))
-    b.appendChild(renderUpgradeRow('Base HP', 'baseHP', lastState.towerUpgrades.baseHPLevel))
-    b.appendChild(renderUpgradeRow('Fortify (Escape DR)', 'fortify', (lastState.towerUpgrades as any).fortifyLevel))
-    b.appendChild(renderUpgradeRow('Repair (Regen)', 'repair', (lastState.towerUpgrades as any).repairLevel))
-
-    b.appendChild(renderUpgradeSection('Utility'))
-    b.appendChild(renderUpgradeRow('Range', 'range', lastState.towerUpgrades.rangeLevel))
-    b.appendChild(renderUpgradeRow('Gold Finder', 'gold', (lastState.towerUpgrades as any).goldLevel))
+    if (upgradesTab === 'attack') {
+      b.appendChild(renderUpgradeRow('Damage', 'damage', lastState.towerUpgrades.damageLevel))
+      b.appendChild(renderUpgradeRow('Fire Rate', 'fireRate', lastState.towerUpgrades.fireRateLevel))
+      b.appendChild(renderUpgradeRow('Armor Piercing', 'armorPierce', (lastState.towerUpgrades as any).armorPierceLevel))
+    } else if (upgradesTab === 'defense') {
+      b.appendChild(renderUpgradeRow('Base HP', 'baseHP', lastState.towerUpgrades.baseHPLevel))
+      b.appendChild(renderUpgradeRow('Fortify (Escape DR)', 'fortify', (lastState.towerUpgrades as any).fortifyLevel))
+      b.appendChild(renderUpgradeRow('Repair (Regen)', 'repair', (lastState.towerUpgrades as any).repairLevel))
+    } else {
+      b.appendChild(renderUpgradeRow('Range', 'range', lastState.towerUpgrades.rangeLevel))
+      b.appendChild(renderUpgradeRow('Gold Finder', 'gold', (lastState.towerUpgrades as any).goldLevel))
+    }
 
     modal.append(h, b)
 
