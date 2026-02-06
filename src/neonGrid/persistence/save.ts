@@ -19,6 +19,7 @@ function defaultStats(): Stats {
     bestWave: 1,
     runsCount: 0,
     totalTimeSec: 0,
+    paladyumDroppedThisRun: 0,
   }
 }
 
@@ -108,6 +109,19 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
     ...input,
     version: config.version,
   }
+
+  // Stats: ensure object and fill any missing fields.
+  if (!merged.stats || typeof merged.stats !== 'object') merged.stats = { ...base.stats }
+  merged.stats = { ...base.stats, ...merged.stats }
+  for (const [k, v] of Object.entries(merged.stats as any)) {
+    ;(merged.stats as any)[k] = typeof v === 'number' && Number.isFinite(v) ? v : (base.stats as any)[k]
+  }
+  merged.stats.totalKills = Math.max(0, Math.floor(merged.stats.totalKills))
+  merged.stats.totalEscapes = Math.max(0, Math.floor(merged.stats.totalEscapes))
+  merged.stats.bestWave = Math.max(1, Math.floor(merged.stats.bestWave))
+  merged.stats.runsCount = Math.max(0, Math.floor(merged.stats.runsCount))
+  merged.stats.totalTimeSec = Math.max(0, merged.stats.totalTimeSec)
+  merged.stats.paladyumDroppedThisRun = Math.max(0, Math.floor(merged.stats.paladyumDroppedThisRun))
 
   // Meta upgrades: fill missing, clamp, and ensure run upgrades never start below meta.
   if (!(merged as any).towerMetaUpgrades || typeof (merged as any).towerMetaUpgrades !== 'object') {

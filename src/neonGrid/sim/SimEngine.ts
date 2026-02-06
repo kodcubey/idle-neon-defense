@@ -541,6 +541,7 @@ export class SimEngine {
             if (u < chance) {
               this._state.points += 1
               this.pointsDroppedThisWave += 1
+              this._state.stats.paladyumDroppedThisRun = Math.max(0, Math.floor((this._state.stats.paladyumDroppedThisRun ?? 0) + 1))
             }
           }
 

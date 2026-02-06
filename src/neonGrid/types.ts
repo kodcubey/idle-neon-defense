@@ -247,6 +247,7 @@ export type Stats = {
   bestWave: number
   runsCount: number
   totalTimeSec: number
+  paladyumDroppedThisRun: number
 }
 
 export type GameState = {

@@ -84,7 +84,7 @@ export const defaultConfig: GameConfig = {
     // Paladyum baseline per-wave reward (tiered by 10 waves).
     p0: 5,
     pointsGrowthPer10: 1.22,
-    paladyumDropRate: 0.02,
+    paladyumDropRate: 0.03,
 
     enableEscapeDamage: true,
     escapeDamage: 1.4,

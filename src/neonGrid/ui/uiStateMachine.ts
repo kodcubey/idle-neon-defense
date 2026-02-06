@@ -984,6 +984,7 @@ export function createUIStateMachine(args: UIArgs) {
       kv('Wave', String(state.wave), true),
       kv('Time', formatTimeMMSS(timeLeft), true),
       kv('Gold', formatNumber(state.gold, state.settings.numberFormat), true),
+      kv('Paladyum (Run)', formatPaladyumInt(state.stats.paladyumDroppedThisRun ?? 0), true),
       kv('DPS (snap)', formatNumber(sim.wave.dpsSnap, state.settings.numberFormat), true),
       kv('HP', `${formatNumber(state.baseHP, 'suffix')}`, true),
     )
@@ -1045,9 +1046,6 @@ export function createUIStateMachine(args: UIArgs) {
     leftStack.append(speed1, speed2, speed3, pause)
 
     const rightStack = el('div', 'stack')
-    const upgrades = btn('Upgrades', 'btn')
-    upgrades.onclick = () => showUpgradesModal()
-
     const menu = btn('Menu', 'btn')
     menu.onclick = () => {
       void (async () => {
@@ -1081,7 +1079,7 @@ export function createUIStateMachine(args: UIArgs) {
       })()
     }
 
-    rightStack.append(upgrades, menu)
+  rightStack.append(menu)
 
     bb.append(leftStack, rightStack)
     bottomPanel.appendChild(bb)
@@ -1850,53 +1848,6 @@ export function createUIStateMachine(args: UIArgs) {
     })
   }
 
-  function showUpgradesModal() {
-    if (!lastState) return
-
-    const modal = el('div', 'panel')
-    modal.style.width = 'min(720px, calc(100vw - 20px))'
-    modal.style.pointerEvents = 'auto'
-
-    const h = el('div', 'panel-header')
-    const title = el('div')
-    title.textContent = 'Upgrades'
-    const close = btn('Close', 'btn')
-    const overlay = mountModal(modal)
-    close.onclick = () => overlay.remove()
-    h.append(title, close)
-
-    const b = el('div', 'panel-body')
-    b.appendChild(
-      renderUpgradesTabs(() => {
-        overlay.remove()
-        showUpgradesModal()
-      }),
-    )
-
-    if (upgradesTab === 'attack') {
-      b.appendChild(renderUpgradeRow('Damage', 'damage', lastState.towerUpgrades.damageLevel))
-      b.appendChild(renderUpgradeRow('Attack Speed', 'fireRate', lastState.towerUpgrades.fireRateLevel))
-      b.appendChild(renderUpgradeRow('Crit', 'crit', lastState.towerUpgrades.critLevel))
-      b.appendChild(renderUpgradeRow('Multi-shot', 'multiShot', lastState.towerUpgrades.multiShotLevel))
-      b.appendChild(renderUpgradeRow('Armor Piercing', 'armorPierce', lastState.towerUpgrades.armorPierceLevel))
-    } else if (upgradesTab === 'defense') {
-      b.appendChild(renderUpgradeRow('Base HP', 'baseHP', lastState.towerUpgrades.baseHPLevel))
-      b.appendChild(renderUpgradeRow('Slow Field', 'slow', lastState.towerUpgrades.slowLevel))
-      b.appendChild(renderUpgradeRow('Fortify (Escape DR)', 'fortify', lastState.towerUpgrades.fortifyLevel))
-      b.appendChild(renderUpgradeRow('Repair (Regen)', 'repair', lastState.towerUpgrades.repairLevel))
-    } else {
-      b.appendChild(renderUpgradeRow('Range', 'range', lastState.towerUpgrades.rangeLevel))
-      b.appendChild(renderUpgradeRow('Gold Finder', 'gold', lastState.towerUpgrades.goldLevel))
-    }
-
-    modal.append(h, b)
-
-    // Optional: click outside to close
-    overlay.addEventListener('pointerdown', (e) => {
-      if (e.target === overlay) overlay.remove()
-    })
-  }
-
   function renderStats() {
     if (!lastState) return
 
@@ -2141,20 +2092,47 @@ export function createUIStateMachine(args: UIArgs) {
     const row = el('div', 'stack')
     row.style.marginTop = '10px'
 
-    const menu = btn('Menu', 'btn')
+    const menu = btn('Menu', 'btn btn-primary')
     menu.onclick = () => {
-      overlay.remove()
-      setScreen('menu')
+      void (async () => {
+        if (!game) {
+          overlay.remove()
+          setScreen('menu')
+          return
+        }
+
+        // Capture latest snapshot and persist before leaving.
+        game.setPaused(true)
+        const snapshot = game.getSnapshot()
+        lastState = snapshot
+
+        const st = firebaseSync?.getStatus()
+        const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
+
+        // Prevent double-clicks while saving.
+        menu.disabled = true
+        try {
+          if (canCloud) {
+            await withLoading(async () => {
+              saveSnapshot(config, snapshot)
+              await firebaseSync!.uploadMetaFromState(snapshot)
+            })
+          } else {
+            saveSnapshot(config, snapshot)
+          }
+        } catch (e) {
+          // Keep local progress and still go to menu.
+          alert(String((e as any)?.message ?? e))
+        } finally {
+          menu.disabled = false
+        }
+
+        overlay.remove()
+        setScreen('menu')
+      })()
     }
 
-    const newRun = btn('New Run', 'btn btn-primary')
-    newRun.onclick = () => {
-      overlay.remove()
-      game?.newRun()
-      setScreen('hud')
-    }
-
-    row.append(menu, newRun)
+    row.append(menu)
     b.appendChild(row)
 
     modal.append(h, b)
