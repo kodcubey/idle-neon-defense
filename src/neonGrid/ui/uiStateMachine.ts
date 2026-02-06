@@ -8,7 +8,7 @@ import { formatNumber, formatPaladyum, formatPaladyumInt, formatPct, formatTimeM
 import { calcPenaltyFactor, calcWaveSnapshot, clamp, calcDPS } from '../sim/deterministic'
 import { moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from '../sim/costs'
 
-export type UIScreen = 'boot' | 'menu' | 'login' | 'hud' | 'modules' | 'prestige' | 'settings' | 'stats' | 'offline'
+export type UIScreen = 'boot' | 'menu' | 'login' | 'hud' | 'modules' | 'settings' | 'stats' | 'offline'
 
 type UIArgs = {
   root: HTMLElement
@@ -386,7 +386,6 @@ export function createUIStateMachine(args: UIArgs) {
     renderHUD(screen !== 'hud')
 
     if (screen === 'modules') renderModules()
-    if (screen === 'prestige') renderPrestige()
     if (screen === 'settings') renderSettings()
     if (screen === 'stats') renderStats()
   }
@@ -510,12 +509,6 @@ export function createUIStateMachine(args: UIArgs) {
       setScreen('stats')
     }
 
-    const prestige = btn('Prestige', 'btn')
-    prestige.onclick = () => {
-      if (game) game.setPaused(true)
-      setScreen('prestige')
-    }
-
     const settings = btn('Settings', 'btn')
     settings.onclick = () => {
       if (game) game.setPaused(true)
@@ -527,7 +520,7 @@ export function createUIStateMachine(args: UIArgs) {
       alert('NEON GRID — Deterministic Idle Tower Defense\nUI/Sim prototype skeleton.')
     }
 
-    row.append(cont, newRun, modules, stats, prestige, settings, credits)
+    row.append(cont, newRun, modules, stats, settings, credits)
 
     const card = el('div', 'panel')
     card.style.marginTop = '12px'
@@ -1151,77 +1144,6 @@ export function createUIStateMachine(args: UIArgs) {
     return parts.length ? parts.join(' • ') : 'Effect: (not defined)'
   }
 
-  function renderPrestige() {
-    if (!game || !lastState) return
-
-    const panel = el('div', 'panel')
-    panel.style.maxWidth = '720px'
-    panel.style.margin = 'auto'
-    panel.style.pointerEvents = 'auto'
-
-    const header = el('div', 'panel-header')
-    header.appendChild(el('div')).textContent = 'RESET PROTOCOL'
-
-    const back = btn('Back', 'btn')
-    back.onclick = () => setScreen('menu')
-    header.appendChild(back)
-
-    const body = el('div', 'panel-body')
-
-    const run = el('div', 'muted')
-    run.innerHTML = `
-      <div>Best Wave: <span class="mono">${lastState.stats.bestWave}</span></div>
-      <div>Total Time: <span class="mono">${formatTimeMMSS(lastState.stats.totalTimeSec)}</span></div>
-      <div>Prestige Points: <span class="mono">${lastState.prestigePoints}</span></div>
-    `
-
-    const preview = el('div', 'muted')
-    preview.style.marginTop = '10px'
-    preview.textContent = 'Prestige multiplier: 1 + μ·sqrt(P). (Deterministic)'
-
-    const confirmBox = el('div', 'panel')
-    confirmBox.style.marginTop = '12px'
-
-    const ch = el('div', 'panel-header')
-    ch.textContent = 'Confirm'
-
-    const cb = el('div', 'panel-body')
-    const hold = btn('Hold: Confirm', 'btn btn-danger')
-    hold.style.width = '100%'
-
-    let timer: number | null = null
-    hold.onpointerdown = () => {
-      hold.textContent = 'Keep holding…'
-      timer = window.setTimeout(() => {
-        timer = null
-        const res = game!.prestigeReset()
-        if (!res.ok) {
-          alert('Not eligible for Prestige yet.')
-        } else {
-          alert(`Prestige gained: +${res.gained}`)
-          setScreen('hud')
-        }
-      }, 900)
-    }
-
-    const cancel = () => {
-      if (timer) window.clearTimeout(timer)
-      timer = null
-      hold.textContent = 'Hold: Confirm'
-    }
-
-    hold.onpointerup = cancel
-    hold.onpointerleave = cancel
-    hold.onpointercancel = cancel
-
-    cb.appendChild(hold)
-    confirmBox.append(ch, cb)
-
-    body.append(run, preview, confirmBox)
-    panel.append(header, body)
-    center.appendChild(panel)
-  }
-
   function renderSettings() {
     if (!game || !lastState) return
 
@@ -1582,7 +1504,7 @@ export function createUIStateMachine(args: UIArgs) {
       scheduled = true
       requestAnimationFrame(() => {
         scheduled = false
-        if (screen === 'hud' || screen === 'modules' || screen === 'prestige' || screen === 'settings' || screen === 'stats') {
+        if (screen === 'hud' || screen === 'modules' || screen === 'settings' || screen === 'stats') {
           render()
         }
       })

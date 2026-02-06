@@ -9,7 +9,10 @@ export function clamp(v: number, min: number, max: number): number {
 }
 
 export function calcPrestigeMult(prestigePoints: number, cfg: GameConfig): number {
-  return 1 + cfg.progression.prestigeMu * Math.sqrt(Math.max(0, prestigePoints))
+  // Prestige system removed/disabled: keep multiplier at 1 for deterministic balance.
+  void prestigePoints
+  void cfg
+  return 1
 }
 
 export function baseDmg(damageLevel: number, cfg: GameConfig): number {

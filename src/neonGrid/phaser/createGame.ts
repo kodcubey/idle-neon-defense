@@ -23,8 +23,6 @@ export type NeonGridGame = {
   upgradeModule: (id: string, amount: 1 | 10 | 'max') => boolean
   equipModule: (slot: number, id: string | null) => boolean
 
-  prestigeReset: () => { ok: boolean; gained: number }
-
   onSim: (cb: (pub: SimPublic) => void) => void
 }
 
@@ -178,7 +176,6 @@ export function createGame(args: {
 
       // Meta / persistent fields across runs.
       s.points = prev.points
-      s.prestigePoints = prev.prestigePoints
       s.settings = { ...prev.settings }
 
       applyState(s, 'hard')
@@ -216,26 +213,6 @@ export function createGame(args: {
       if (!next.ok) return false
       applyState(next.state, 'soft')
       return true
-    },
-
-    prestigeReset: () => {
-      const s = currentState()
-      const gained = Math.max(0, Math.floor(Math.pow(Math.max(0, s.stats.bestWave - 1), 0.62) / 8))
-      if (gained <= 0) return { ok: false, gained: 0 }
-
-      const next = createNewState(cfg, Date.now())
-      next.prestigePoints = s.prestigePoints + gained
-
-      // Keep Paladyum permanent across prestige.
-      next.points = s.points
-      next.settings = { ...s.settings }
-
-      next.stats.runsCount = (s.stats.runsCount ?? 0) + 1
-      next.stats.bestWave = Math.max(next.stats.bestWave, 1)
-      applyState(next, 'hard')
-      pendingPaused = false
-      if (engine) engine.setPaused(false)
-      return { ok: true, gained }
     },
 
     onSim: (cb) => {
