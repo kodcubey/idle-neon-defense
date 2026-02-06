@@ -27,7 +27,9 @@ export function createNewState(config: GameConfig, nowUTC: number): GameState {
   const moduleLevels: Record<string, number> = {}
   for (const def of config.modules.defs) {
     modulesUnlocked[def.id] = false
-    moduleLevels[def.id] = 0
+    // Module levels start at 1 (consistent with tower upgrades).
+    // Locked modules don't apply, so this only matters after unlock.
+    moduleLevels[def.id] = 1
   }
 
   // Modules start locked; unlock with Paladyum in the Modules screen.
@@ -118,7 +120,8 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
   // Ensure module maps contain all defs.
   for (const def of config.modules.defs) {
     if (typeof merged.modulesUnlocked[def.id] !== 'boolean') merged.modulesUnlocked[def.id] = false
-    if (typeof merged.moduleLevels[def.id] !== 'number') merged.moduleLevels[def.id] = 0
+    if (typeof merged.moduleLevels[def.id] !== 'number' || !Number.isFinite(merged.moduleLevels[def.id])) merged.moduleLevels[def.id] = 1
+    merged.moduleLevels[def.id] = Math.max(1, Math.floor(merged.moduleLevels[def.id]))
   }
 
   for (let s = 1; s <= config.modules.slotCount; s++) {

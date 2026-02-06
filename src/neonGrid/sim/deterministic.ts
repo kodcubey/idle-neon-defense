@@ -75,7 +75,7 @@ export function aggregateModules(state: GameState, cfg: GameConfig): ModuleAggre
     const def = defsById.get(id)
     if (!def) continue
 
-    const rawLevel = Math.max(0, Math.floor(state.moduleLevels[id] ?? 0))
+    const rawLevel = Math.max(1, Math.floor(state.moduleLevels[id] ?? 1))
     const levelCap = typeof def.maxEffectiveLevel === 'number' && Number.isFinite(def.maxEffectiveLevel) ? Math.max(0, Math.floor(def.maxEffectiveLevel)) : rawLevel
     const level = Math.min(rawLevel, levelCap)
     if (level <= 0) continue

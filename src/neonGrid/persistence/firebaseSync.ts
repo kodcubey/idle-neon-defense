@@ -38,6 +38,11 @@ export function extractMetaFromState(state: GameState): MetaSaveV1 {
 }
 
 export function applyMetaToState(current: GameState, meta: MetaSaveV1): GameState {
+  const mergedLevels = { ...current.moduleLevels, ...meta.moduleLevels }
+  for (const [id, v] of Object.entries(mergedLevels)) {
+    mergedLevels[id] = typeof v === 'number' && Number.isFinite(v) ? Math.max(1, Math.floor(v)) : 1
+  }
+
   return {
     ...current,
     points: typeof meta.points === 'number' ? meta.points : current.points,
@@ -45,7 +50,7 @@ export function applyMetaToState(current: GameState, meta: MetaSaveV1): GameStat
     settings: { ...current.settings, ...meta.settings, quality: 'high' },
     stats: { ...current.stats, ...meta.stats },
     modulesUnlocked: { ...current.modulesUnlocked, ...meta.modulesUnlocked },
-    moduleLevels: { ...current.moduleLevels, ...meta.moduleLevels },
+    moduleLevels: mergedLevels,
     modulesEquipped: { ...current.modulesEquipped, ...meta.modulesEquipped },
     moduleSlotsUnlocked:
       typeof meta.moduleSlotsUnlocked === 'number' && Number.isFinite(meta.moduleSlotsUnlocked)

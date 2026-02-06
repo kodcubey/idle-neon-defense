@@ -179,6 +179,10 @@ export function createGame(args: {
       // Meta / persistent fields across runs.
       s.points = prev.points
       s.settings = { ...prev.settings }
+      s.modulesUnlocked = { ...prev.modulesUnlocked }
+      s.moduleLevels = { ...prev.moduleLevels }
+      s.modulesEquipped = { ...prev.modulesEquipped }
+      s.moduleSlotsUnlocked = prev.moduleSlotsUnlocked
 
       applyState(s, 'hard')
       pendingPaused = false

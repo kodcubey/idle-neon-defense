@@ -5,7 +5,7 @@ import { applyMetaToState, type FirebaseSync } from '../persistence/firebaseSync
 import { createNewState } from '../persistence/save'
 import { btn, clear, el, hr, kv } from './dom'
 import { formatNumber, formatPaladyum, formatPaladyumInt, formatPct, formatTimeMMSS } from './format'
-import { calcPenaltyFactor, calcWaveSnapshot, clamp, calcDPS } from '../sim/deterministic'
+import { calcPenaltyFactor, calcWaveSnapshot, clamp, calcDPS, aggregateModules } from '../sim/deterministic'
 import { moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from '../sim/costs'
 
 export type UIScreen = 'boot' | 'menu' | 'login' | 'hud' | 'modules' | 'settings' | 'stats' | 'offline'
@@ -162,6 +162,9 @@ export function createUIStateMachine(args: UIArgs) {
   let modulesFilter: 'ALL' | 'OFFENSE' | 'DEFENSE' | 'UTILITY' = 'ALL'
   let modulesPage = 0
   const MODULES_PER_PAGE = 9
+
+  // Prevent accidental click-to-unequip triggered right after a successful drop.
+  let lastSlotDropAtMs = 0
 
   let screen: UIScreen = args.initialState
 
@@ -346,6 +349,10 @@ export function createUIStateMachine(args: UIArgs) {
     if (game && (next === 'menu' || next === 'login' || next === 'boot' || next === 'offline')) {
       game.setPaused(true)
     }
+    if (game && next === 'hud') {
+      // Ensure HUD reflects the latest snapshot immediately (module equips, cloud meta, etc.)
+      lastState = game.getSnapshot()
+    }
     render()
   }
 
@@ -485,22 +492,99 @@ export function createUIStateMachine(args: UIArgs) {
 
     const cont = btn('Continue', 'btn btn-primary')
     cont.onclick = () => {
-      if (!game) return
-      game.setPaused(false)
-      setScreen('hud')
+      void (async () => {
+        if (!game) return
+
+        const st = firebaseSync?.getStatus()
+        const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
+        if (canCloud) {
+          try {
+            await withLoading(async () => {
+              game!.setPaused(true)
+              await maybeInitialCloudSync()
+
+              const cloudMeta = await firebaseSync!.downloadMeta()
+              if (!cloudMeta) {
+                await firebaseSync!.uploadMetaFromState(game!.getSnapshot())
+              } else {
+                const cur = game!.getSnapshot()
+                game!.setSnapshot(applyMetaToState(cur, cloudMeta))
+                lastState = game!.getSnapshot()
+              }
+            })
+          } catch (e) {
+            alert(String((e as any)?.message ?? e))
+          }
+        }
+
+        game.setPaused(false)
+        setScreen('hud')
+      })()
     }
 
     const newRun = btn('New Run', 'btn')
     newRun.onclick = () => {
-      if (!game) return
-      game.newRun()
-      setScreen('hud')
+      void (async () => {
+        if (!game) return
+
+        const st = firebaseSync?.getStatus()
+        const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
+        if (canCloud) {
+          try {
+            await withLoading(async () => {
+              game!.setPaused(true)
+              await maybeInitialCloudSync()
+
+              const cloudMeta = await firebaseSync!.downloadMeta()
+              if (!cloudMeta) {
+                await firebaseSync!.uploadMetaFromState(game!.getSnapshot())
+              } else {
+                const cur = game!.getSnapshot()
+                game!.setSnapshot(applyMetaToState(cur, cloudMeta))
+                lastState = game!.getSnapshot()
+              }
+            })
+          } catch (e) {
+            alert(String((e as any)?.message ?? e))
+          }
+        }
+
+        game.newRun()
+        setScreen('hud')
+      })()
     }
 
     const modules = btn('Modules', 'btn')
     modules.onclick = () => {
-      if (game) game.setPaused(true)
-      setScreen('modules')
+      void (async () => {
+        if (game) game.setPaused(true)
+
+        // On entering Modules, refresh meta from cloud (if signed in) so
+        // equipped slots/levels don't "pop in" after a delayed sync.
+        const st = firebaseSync?.getStatus()
+        const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
+        if (canCloud) {
+          try {
+            await withLoading(async () => {
+              await maybeInitialCloudSync()
+              if (!game) return
+              const cloudMeta = await firebaseSync!.downloadMeta()
+              if (!cloudMeta) {
+                // Best-effort: if doc doesn't exist, create it from local.
+                await firebaseSync!.uploadMetaFromState(game.getSnapshot())
+                return
+              }
+              const cur = game.getSnapshot()
+              game.setSnapshot(applyMetaToState(cur, cloudMeta))
+              lastState = game.getSnapshot()
+            })
+          } catch (e) {
+            alert(String((e as any)?.message ?? e))
+          }
+        }
+
+        setScreen('modules')
+      })()
     }
 
     const stats = btn('Stats', 'btn')
@@ -890,7 +974,115 @@ export function createUIStateMachine(args: UIArgs) {
       ub.append(hr(), liveTitle, live, statsBox)
       upg.append(uh, ub)
 
-      panels.append(upg)
+      // --- Modules (applied effects) mini-panel ---
+      const modsPanel = el('div', 'panel hud-inline-panel')
+      // Push the modules panel to the right within the HUD inline row.
+      modsPanel.style.marginLeft = 'auto'
+      const mh = el('div', 'panel-header')
+      mh.textContent = 'Modules (Active)'
+      const mb = el('div', 'panel-body')
+
+      const pctSigned = (v: number) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`
+      const numSigned = (v: number) => `${v >= 0 ? '+' : ''}${Math.floor(v)}`
+
+      const maxSlots = Math.max(1, Math.floor(config.modules.slotCount))
+      const unlockedSlots = Math.max(1, Math.min(maxSlots, Math.floor(state.moduleSlotsUnlocked ?? 1)))
+
+      const inv = el('div', 'muted')
+      inv.style.fontSize = '12px'
+
+      const anyEquipped = (() => {
+        for (let slot = 1; slot <= unlockedSlots; slot++) {
+          if (state.modulesEquipped[slot]) return true
+        }
+        return false
+      })()
+
+      const pct = (v: number) => `${(v * 100).toFixed(1)}%`
+
+      if (!anyEquipped) {
+        inv.appendChild(el('div', 'muted')).textContent = 'No modules equipped.'
+      } else {
+        for (let slot = 1; slot <= unlockedSlots; slot++) {
+          const id = state.modulesEquipped[slot]
+          if (!id) continue
+
+          const def = config.modules.defs.find((d) => d.id === id)
+          const rawLevel = Math.max(1, Math.floor(state.moduleLevels[id] ?? 1))
+          const levelCap =
+            def && typeof def.maxEffectiveLevel === 'number' && Number.isFinite(def.maxEffectiveLevel)
+              ? Math.max(0, Math.floor(def.maxEffectiveLevel))
+              : rawLevel
+          const L = Math.min(rawLevel, levelCap)
+          const name = def?.nameTR ?? id
+
+          const header = el('div', 'mono')
+          header.textContent = `S${slot}: ${name} (Lv ${rawLevel}${L !== rawLevel ? ` → ${L}` : ''})`
+          header.style.fontWeight = '800'
+          header.style.marginTop = '4px'
+
+          const details = el('div', 'muted')
+          details.style.marginLeft = '0px'
+
+          if (!def || L <= 0) {
+            details.textContent = '—'
+          } else {
+            const parts: string[] = []
+
+            if (def.dmgMultPerLevel) parts.push(`Damage Mult: x${(1 + def.dmgMultPerLevel * L).toFixed(2)}`)
+            if (def.dmgFlatPerLevel) parts.push(`Flat Damage: ${def.dmgFlatPerLevel >= 0 ? '+' : ''}${(def.dmgFlatPerLevel * L).toFixed(0)}`)
+            if (def.fireRateBonusPerLevel) parts.push(`Fire Rate: ${def.fireRateBonusPerLevel >= 0 ? '+' : ''}${pct(def.fireRateBonusPerLevel * L)}`)
+            if (def.rangeBonusPerLevel) parts.push(`Range: ${def.rangeBonusPerLevel >= 0 ? '+' : ''}${(def.rangeBonusPerLevel * L).toFixed(0)}`)
+            if (def.armorPiercePerLevel) parts.push(`Armor Pierce: ${def.armorPiercePerLevel >= 0 ? '+' : ''}${pct(def.armorPiercePerLevel * L)}`)
+            if (def.baseHPBonusPerLevel) parts.push(`Base HP: ${def.baseHPBonusPerLevel >= 0 ? '+' : ''}${(def.baseHPBonusPerLevel * L).toFixed(0)}`)
+            if (def.baseHPMultPerLevel) parts.push(`Max HP Mult: x${(1 + def.baseHPMultPerLevel * L).toFixed(2)}`)
+            if (def.goldMultPerLevel) parts.push(`Gold Mult: x${(1 + def.goldMultPerLevel * L).toFixed(2)}`)
+
+            if (def.shotCountPerLevel) {
+              const add = Math.max(0, Math.floor(def.shotCountPerLevel * L))
+              if (add > 0) parts.push(`Ability: Multi-shot (+${add} targets)`)
+            }
+            if (def.invulnDurationSecPerLevel && def.invulnCooldownSec) {
+              const dur = Math.max(0, def.invulnDurationSecPerLevel * L)
+              if (dur > 0) parts.push(`Ability: Escape Invuln (${dur.toFixed(2)}s / ${def.invulnCooldownSec.toFixed(0)}s)`)
+            }
+
+            details.textContent = parts.length ? parts.join(' • ') : '—'
+          }
+
+          inv.append(header, details)
+        }
+      }
+
+      const agg = aggregateModules(state, config)
+
+      const effects = el('div', 'muted')
+      effects.style.fontSize = '12px'
+      effects.style.marginTop = '6px'
+
+      const effectLines: string[] = []
+      if (agg.dmgMult !== 1) effectLines.push(`Damage Mult: <span class="mono">x${agg.dmgMult.toFixed(2)}</span>`)
+      if (agg.dmgFlat !== 0) effectLines.push(`Flat Damage: <span class="mono">${numSigned(agg.dmgFlat)}</span>`)
+      if (agg.fireRateBonus !== 0) effectLines.push(`Fire Rate: <span class="mono">${pctSigned(agg.fireRateBonus)}</span>`)
+      if (agg.rangeBonus !== 0) effectLines.push(`Range: <span class="mono">${numSigned(agg.rangeBonus)}</span>`)
+      if (agg.baseHPBonus !== 0) effectLines.push(`Base HP: <span class="mono">${numSigned(agg.baseHPBonus)}</span>`)
+      if (agg.baseHPMult !== 1) effectLines.push(`Max HP Mult: <span class="mono">x${agg.baseHPMult.toFixed(2)}</span>`)
+      if (agg.goldMult !== 1) effectLines.push(`Gold Mult: <span class="mono">x${agg.goldMult.toFixed(2)}</span>`)
+      if (agg.armorPierce !== config.tower.armorPierce0) effectLines.push(`Armor Pierce: <span class="mono">${formatPct(agg.armorPierce)}</span>`)
+
+      if (agg.shotCount > 1) effectLines.push(`Ability: <span class="mono">Multi-shot</span> (${agg.shotCount} targets)`)
+      if (agg.invulnDurationSec > 0 && agg.invulnCooldownSec > 0) {
+        effectLines.push(
+          `Ability: <span class="mono">Invuln vs escapes</span> (${agg.invulnDurationSec.toFixed(2)}s / ${agg.invulnCooldownSec.toFixed(0)}s)`,
+        )
+      }
+
+      effects.innerHTML = effectLines.length ? effectLines.map((t) => `<div>${t}</div>`).join('') : `<div class="muted">No active bonuses.</div>`
+
+      mb.append(inv, hr(), effects)
+      modsPanel.append(mh, mb)
+
+      panels.append(upg, modsPanel)
       center.appendChild(panels)
     }
   }
@@ -1029,18 +1221,61 @@ export function createUIStateMachine(args: UIArgs) {
     unlockedDefs.sort((a, b) => (a.category + a.nameTR).localeCompare(b.category + b.nameTR))
 
     const equippedIds = new Set<string>()
+    const equippedById = new Map<string, number>()
     for (let s = 1; s <= maxSlots; s++) {
       const id = lastState.modulesEquipped[s]
-      if (id) equippedIds.add(id)
+      if (id) {
+        equippedIds.add(id)
+        if (!equippedById.has(id)) equippedById.set(id, s)
+      }
     }
 
-    const setEquip = (slot: number, id: string | null) => {
+    const firstEmptyUnlockedSlot = (): number | null => {
+      for (let s = 1; s <= unlockedSlots; s++) {
+        if (!lastState!.modulesEquipped[s]) return s
+      }
+      return null
+    }
+
+    const shouldCloudSyncOnEquip = () => {
+      if (!firebaseSync) return false
+      const st = firebaseSync.getStatus()
+      return !!st.configured && !!st.signedIn
+    }
+
+    const setEquip = async (slot: number, id: string | null): Promise<boolean> => {
       if (!game) return false
-      const ok = game.equipModule(slot, id)
-      if (!ok) return false
-      lastState = game.getSnapshot()
-      render()
-      return true
+
+      const doLocal = () => {
+        const ok = game!.equipModule(slot, id)
+        if (!ok) return false
+        lastState = game!.getSnapshot()
+        return true
+      }
+
+      // If signed-in, treat equip/unequip as a meta change that should be
+      // persisted immediately (and show loading until done).
+      if (shouldCloudSyncOnEquip()) {
+        try {
+          const ok = await withLoading(async () => {
+            const localOk = doLocal()
+            if (!localOk) return false
+            await firebaseSync!.uploadMetaFromState(game!.getSnapshot())
+            return true
+          })
+          render()
+          return ok
+        } catch (e) {
+          alert(String((e as any)?.message ?? e))
+          lastState = game.getSnapshot()
+          render()
+          return false
+        }
+      }
+
+      const ok = doLocal()
+      if (ok) render()
+      return ok
     }
 
     const slotsGrid = el('div')
@@ -1050,26 +1285,25 @@ export function createUIStateMachine(args: UIArgs) {
 
     const getModuleLabel = (id: string) => {
       const def = config.modules.defs.find((d) => d.id === id)
-      const L = Math.max(0, Math.floor(lastState!.moduleLevels[id] ?? 0))
+      const L = Math.max(1, Math.floor(lastState!.moduleLevels[id] ?? 1))
       return def ? `${def.nameTR} (Lv ${L})` : `${id} (Lv ${L})`
     }
 
     for (let s = 1; s <= maxSlots; s++) {
       const slotBox = el('div', 'panel')
-      slotBox.style.cursor = s <= unlockedSlots ? 'pointer' : 'not-allowed'
+      slotBox.style.cursor = s <= unlockedSlots ? 'default' : 'not-allowed'
       ;(slotBox as any).dataset.ngSlot = String(s)
+
+      const equippedId = lastState.modulesEquipped[s] ?? null
 
       const hh = el('div', 'panel-header')
       const left = el('div')
       left.textContent = `Slot ${s}`
-      const right = el('div', 'muted mono')
-      right.textContent = s <= unlockedSlots ? 'DROP' : 'LOCKED'
+      const right = el('div')
       hh.append(left, right)
 
       const bb = el('div', 'panel-body')
       bb.style.minHeight = '56px'
-
-      const equippedId = lastState.modulesEquipped[s] ?? null
       if (s <= unlockedSlots) {
         bb.textContent = ''
 
@@ -1077,10 +1311,14 @@ export function createUIStateMachine(args: UIArgs) {
           const empty = el('div', 'mono')
           empty.textContent = 'Empty'
           bb.appendChild(empty)
+
+          const hint = el('div', 'muted')
+          hint.style.fontSize = '12px'
+          hint.style.marginTop = '6px'
+          hint.textContent = 'Use “Add” on a module card.'
+          bb.appendChild(hint)
         } else {
           const def = config.modules.defs.find((d) => d.id === equippedId)
-          const level = Math.max(0, Math.floor(lastState!.moduleLevels[equippedId] ?? 0))
-          const cost = moduleUpgradeCostPoints(level, config)
 
           const title = el('div', 'mono')
           title.style.marginBottom = '6px'
@@ -1088,105 +1326,33 @@ export function createUIStateMachine(args: UIArgs) {
 
           const effect = el('div', 'muted')
           effect.style.fontSize = '12px'
-          effect.style.marginBottom = '6px'
           effect.textContent = def ? moduleEffectText(def) : ''
 
-          const actions = el('div', 'stack')
-          const b1 = btn(`+1 (${formatPaladyumInt(cost)})`, 'btn')
-          b1.onclick = () => {
-            if (!game) return
-            const ok = game.upgradeModule(equippedId, 1)
-            if (!ok) {
-              flashFail(b1)
-              return
-            }
-            lastState = game.getSnapshot()
-            render()
+          bb.append(title, effect)
+
+          const remove = btn('Remove', 'btn btn-danger')
+          remove.onclick = (e) => {
+            e.stopPropagation()
+            if (Date.now() - lastSlotDropAtMs < 250) return
+            void setEquip(s, null)
           }
-          const b10 = btn('+10', 'btn')
-          b10.onclick = () => {
-            if (!game) return
-            const ok = game.upgradeModule(equippedId, 10)
-            if (!ok) {
-              flashFail(b10)
-              return
-            }
-            lastState = game.getSnapshot()
-            render()
-          }
-          const bM = btn('+Max', 'btn')
-          bM.onclick = () => {
-            if (!game) return
-            const ok = game.upgradeModule(equippedId, 'max')
-            if (!ok) {
-              flashFail(bM)
-              return
-            }
-            lastState = game.getSnapshot()
-            render()
-          }
-          actions.append(kv('Level', String(level), true), b1, b10, bM)
-
-          bb.append(title, effect, actions)
-        }
-
-        // Click to unequip (minimal removal UX).
-        slotBox.onclick = () => {
-          const cur = lastState!.modulesEquipped[s] ?? null
-          if (!cur) return
-          void setEquip(s, null)
-        }
-
-        // Drag from slot -> slot.
-        if (equippedId) {
-          slotBox.draggable = true
-          slotBox.ondragstart = (e) => {
-            const dt = (e as DragEvent).dataTransfer
-            if (!dt) return
-            dt.setData('text/plain', equippedId)
-            dt.setData('application/x-neongrid-source-slot', String(s))
-            dt.effectAllowed = 'move'
-          }
-        }
-
-        // Drop target.
-        slotBox.ondragover = (e) => {
-          e.preventDefault()
-          slotBox.style.outline = `2px solid ${config.ui.palette.neonCyan}`
-          slotBox.style.outlineOffset = '2px'
-        }
-        slotBox.ondragleave = () => {
-          slotBox.style.outline = ''
-          slotBox.style.outlineOffset = ''
-        }
-        slotBox.ondrop = (e) => {
-          e.preventDefault()
-          slotBox.style.outline = ''
-          slotBox.style.outlineOffset = ''
-
-          const dt = (e as DragEvent).dataTransfer
-          const id = dt?.getData('text/plain')?.trim() || ''
-          if (!id) return
-
-          const srcSlotRaw = dt?.getData('application/x-neongrid-source-slot')
-          const srcSlot = srcSlotRaw ? Math.max(1, Math.floor(Number(srcSlotRaw))) : null
-
-          const ok = setEquip(s, id)
-          if (!ok) return
-
-          // If the drag originated from another slot, clear it (move semantics).
-          if (srcSlot && srcSlot !== s) {
-            void setEquip(srcSlot, null)
-          }
+          right.appendChild(remove)
         }
       } else {
         bb.textContent = 'Locked'
         bb.classList.add('muted')
+
+        const label = el('div', 'muted mono')
+        label.textContent = 'LOCKED'
+        right.appendChild(label)
       }
 
       slotBox.append(hh, bb)
       slotsGrid.appendChild(slotBox)
     }
+
+    panel.ondragover = null
+    panel.ondrop = null
 
     sb.appendChild(slotsGrid)
 
@@ -1224,12 +1390,7 @@ export function createUIStateMachine(args: UIArgs) {
     filterRow.append(mkFilter('All', 'ALL'), mkFilter('Offense', 'OFFENSE'), mkFilter('Defense', 'DEFENSE'), mkFilter('Utility', 'UTILITY'))
 
     // Filter modules
-    // Show locked modules (store), and show only unequipped unlocked modules (inventory).
-    const filtered = config.modules.defs.filter((d) => {
-      if (!(modulesFilter === 'ALL' || d.category === modulesFilter)) return false
-      if (!lastState!.modulesUnlocked[d.id]) return true
-      return !equippedIds.has(d.id)
-    })
+    const filtered = config.modules.defs.filter((d) => modulesFilter === 'ALL' || d.category === modulesFilter)
     const totalPages = Math.max(1, Math.ceil(filtered.length / MODULES_PER_PAGE))
     if (modulesPage >= totalPages) modulesPage = totalPages - 1
     const pageItems = filtered.slice(modulesPage * MODULES_PER_PAGE, (modulesPage + 1) * MODULES_PER_PAGE)
@@ -1244,16 +1405,8 @@ export function createUIStateMachine(args: UIArgs) {
 
     for (const def of pageItems) {
       const card = el('div', 'panel')
-      if (lastState.modulesUnlocked[def.id]) {
-        card.draggable = true
-        card.style.cursor = 'grab'
-        card.ondragstart = (e) => {
-          const dt = (e as DragEvent).dataTransfer
-          if (!dt) return
-          dt.setData('text/plain', def.id)
-          dt.effectAllowed = 'move'
-        }
-      }
+      card.draggable = false
+      card.ondragstart = null
       const ch = el('div', 'panel-header')
       const name = el('div')
       name.textContent = def.nameTR
@@ -1287,7 +1440,23 @@ export function createUIStateMachine(args: UIArgs) {
         }
         actions.appendChild(b)
       } else {
-        const level = lastState.moduleLevels[def.id] ?? 0
+        const eqSlot = equippedById.get(def.id) ?? null
+        const add = btn(eqSlot ? `Equipped (S${eqSlot})` : 'Add', 'btn')
+        add.disabled = !!eqSlot
+        add.onclick = () => {
+          if (eqSlot) return
+          const slot = firstEmptyUnlockedSlot()
+          if (!slot) {
+            flashFail(add)
+            return
+          }
+          void (async () => {
+            const ok = await setEquip(slot, def.id)
+            if (!ok) flashFail(add)
+          })()
+        }
+
+        const level = Math.max(1, Math.floor(lastState.moduleLevels[def.id] ?? 1))
         const cost = moduleUpgradeCostPoints(level, config)
 
         const b1 = btn(`+1 (${formatPaladyumInt(cost)} Paladyum)`, 'btn')
@@ -1315,7 +1484,7 @@ export function createUIStateMachine(args: UIArgs) {
           render()
         }
 
-        actions.append(kv('Level', String(level), true), b1, b10, bM)
+        actions.append(add, kv('Level', String(level), true), b1, b10, bM)
       }
 
       cb.append(effect, actions)

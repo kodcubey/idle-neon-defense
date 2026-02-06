@@ -147,7 +147,7 @@ export function tryModuleUpgrade(args: {
   if (!(id in state.moduleLevels)) return { ok: false, state: args.state }
   if (!state.modulesUnlocked[id]) return { ok: false, state: args.state }
 
-  const cur = Math.max(0, Math.floor(state.moduleLevels[id] ?? 0))
+  const cur = Math.max(1, Math.floor(state.moduleLevels[id] ?? 1))
 
   const buyCount = args.amount === 'max' ? maxAffordableModuleLevels(cur, state.points, cfg) : args.amount
   if (buyCount <= 0) return { ok: false, state: args.state }
@@ -188,7 +188,7 @@ export function tryUnlockModuleSlot(args: { state: GameState; cfg: GameConfig })
 function maxAffordableModuleLevels(currentLevel: number, points: number, cfg: GameConfig): number {
   let n = 0
   let p = points
-  let L = Math.max(0, Math.floor(currentLevel))
+  let L = Math.max(1, Math.floor(currentLevel))
   for (let iter = 0; iter < 10_000; iter++) {
     const c = moduleUpgradeCostPoints(L, cfg)
     if (p < c) break
