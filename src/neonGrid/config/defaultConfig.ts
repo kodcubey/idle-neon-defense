@@ -110,7 +110,7 @@ export const defaultConfig: GameConfig = {
         baseHP: 220,
         fortify: 80,
         repair: 80,
-        range: 140,
+        range: 20,
         gold: 120,
       },
 
@@ -136,7 +136,7 @@ export const defaultConfig: GameConfig = {
       fortifyPerLevel: 0.007,
       fortifyMinMult: 0.55,
 
-      // Base regen per second: maxHP * clamp((L-1)*repairPctPerSecPerLevel, 0, repairMaxPctPerSec)
+      // Base regen per second: missingHP * clamp((L-1)*repairPctPerSecPerLevel, 0, repairMaxPctPerSec)
       repairPctPerSecPerLevel: 0.00035,
       repairMaxPctPerSec: 0.012,
 
@@ -227,6 +227,25 @@ export const defaultConfig: GameConfig = {
       { id: 'MX_PULSE', nameTR: 'Pulse Array', category: 'OFFENSE', iconConcept: 'pulse', dmgFlatPerLevel: 0.9 },
       { id: 'DF_SPINE', nameTR: 'Spine Frame', category: 'DEFENSE', iconConcept: 'spine', baseHPBonusPerLevel: 3.5 },
       { id: 'UT_AUDIT', nameTR: 'Audit Log', category: 'UTILITY', iconConcept: 'check', goldMultPerLevel: 0.01 },
+
+      // More variety (still deterministic; uses only supported stats)
+      { id: 'MX_FRACTAL', nameTR: 'Fractal Barrel', category: 'OFFENSE', iconConcept: 'fractured ring', dmgMultPerLevel: 0.018, armorPiercePerLevel: 0.008 },
+      { id: 'MX_CAP', nameTR: 'Capacitor Feed', category: 'OFFENSE', iconConcept: 'capacitor + arrow', dmgFlatPerLevel: 1.1, fireRateBonusPerLevel: 0.02 },
+      { id: 'MX_PIN', nameTR: 'Pinpoint Optics', category: 'OFFENSE', iconConcept: 'crosshair + lens', dmgMultPerLevel: 0.012, rangeBonusPerLevel: 1.6 },
+      { id: 'MX_SHARD', nameTR: 'Shard Tips', category: 'OFFENSE', iconConcept: 'shards', dmgFlatPerLevel: 0.7, armorPiercePerLevel: 0.012 },
+      { id: 'MX_SURGE', nameTR: 'Surge Relay', category: 'OFFENSE', iconConcept: 'relay + wave', fireRateBonusPerLevel: 0.03, dmgMultPerLevel: 0.008 },
+
+      { id: 'DF_BASTION', nameTR: 'Bastion Plating', category: 'DEFENSE', iconConcept: 'layered plates', baseHPBonusPerLevel: 9.0 },
+      { id: 'DF_FIELD', nameTR: 'Aegis Field', category: 'DEFENSE', iconConcept: 'shield field', baseHPBonusPerLevel: 5.5, rangeBonusPerLevel: 1.2 },
+      { id: 'DF_RETAL', nameTR: 'Retaliation Coil', category: 'DEFENSE', iconConcept: 'coil + spike', baseHPBonusPerLevel: 4.0, dmgMultPerLevel: 0.01 },
+      { id: 'DF_COND', nameTR: 'Stability Conduit', category: 'DEFENSE', iconConcept: 'conduit', baseHPBonusPerLevel: 3.5, fireRateBonusPerLevel: 0.015 },
+      { id: 'DF_BULK', nameTR: 'Bulkheads', category: 'DEFENSE', iconConcept: 'bulkhead door', baseHPBonusPerLevel: 6.5 },
+
+      { id: 'UT_SCOUT', nameTR: 'Scout Uplink', category: 'UTILITY', iconConcept: 'antenna + ping', rangeBonusPerLevel: 2.5, goldMultPerLevel: 0.007 },
+      { id: 'UT_TUNER', nameTR: 'Clockwork Tuner', category: 'UTILITY', iconConcept: 'gear + clock', fireRateBonusPerLevel: 0.015, goldMultPerLevel: 0.008 },
+      { id: 'UT_BEACON', nameTR: 'Beacon Array', category: 'UTILITY', iconConcept: 'beacon', rangeBonusPerLevel: 4.0 },
+      { id: 'UT_COUPON', nameTR: 'Coupon Cache', category: 'UTILITY', iconConcept: 'ticket', goldMultPerLevel: 0.016 },
+      { id: 'UT_COMMS', nameTR: 'Comms Mesh', category: 'UTILITY', iconConcept: 'mesh network', rangeBonusPerLevel: 1.5, dmgMultPerLevel: 0.006, goldMultPerLevel: 0.004 },
     ],
   },
 }

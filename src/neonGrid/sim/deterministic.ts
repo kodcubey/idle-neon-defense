@@ -247,14 +247,14 @@ export function calcPaladyumRewardForWave(state: GameState, wave: number, cfg: G
   // New Paladyum system:
   // - Always reward every wave.
   // - Logarithmic growth with wave.
-  // - Starts at 0.00001 at waveIndex=0 (i.e., wave 1 in-game).
+  // - Starts at 0.0 at waveIndex=0 (i.e., wave 1 in-game).
   // - Caps at 0.001 at/after waveIndex=100 (roughly wave 101).
   // The shape exponent keeps early-wave gains extremely small.
 
   void state
   void cfg
 
-  const MIN = 0.00001
+  const MIN = 0.0
   const MAX = 0.001
   const CAP_WAVE_INDEX = 100
   const SHAPE = 4

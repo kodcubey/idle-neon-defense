@@ -2,6 +2,7 @@ import type { GameConfig, GameState, RunSummary, WaveReport, WaveSnapshot } from
 import {
   aggregateModules,
   baseDmg,
+  calcPenaltyFactor,
   calcEnemyStats,
   calcSpawnTimeSec,
   calcWaveReport,
@@ -10,6 +11,7 @@ import {
   clamp,
   fireRate,
   towerArmorPierceBonus,
+  towerEscapeDamageMult,
   towerRepairPctPerSec,
   towerRange,
 } from './deterministic'
@@ -98,6 +100,7 @@ export class SimEngine {
   private killed = 0
   private escaped = 0
   private spawnedSoFar = 0
+  private escapeDamageAppliedThisWave = 0
 
   private nextEnemyId = 1
   private nextProjectileId = 1
@@ -248,6 +251,10 @@ export class SimEngine {
 
     this.spawnEnemiesUpToTime(this.waveTimeSec)
     this.stepEnemies(scaled)
+    if (this.paused) {
+      this.cb.onStateChanged(this._state)
+      return
+    }
     this.stepTower(scaled)
     this.stepProjectiles(scaled)
 
@@ -264,10 +271,38 @@ export class SimEngine {
     this.killed = 0
     this.escaped = 0
     this.spawnedSoFar = 0
+    this.escapeDamageAppliedThisWave = 0
     this.enemies = []
     this.projectiles = []
     this.spawnCursor = 0
     this.towerCooldown = 0
+  }
+
+  private applyEscapeDamageNow(count: number) {
+    if (!this.cfg.progression.enableEscapeDamage) return
+    if (count <= 0) return
+
+    const N = Math.max(1, this.snapshot.spawnCount)
+    const killRatioNow = clamp(this.killed / N, 0, 1)
+    const { deficit } = calcPenaltyFactor(killRatioNow, this.snapshot.threshold, this.cfg)
+
+    const perEscape = this.cfg.progression.escapeDamage * (1 + this.cfg.progression.deficitBoost * deficit)
+    const afterFortify = perEscape * towerEscapeDamageMult(this._state, this.cfg)
+    const dmg = Math.max(0, afterFortify * count)
+
+    this.escapeDamageAppliedThisWave += dmg
+    this._state.baseHP = Math.max(0, this._state.baseHP - dmg)
+
+    if (this._state.baseHP <= 0) {
+      const sum: RunSummary = {
+        endedAtWave: this._state.wave,
+        totalGoldThisRun: this._state.gold,
+        totalTimeSec: this._state.stats.totalTimeSec,
+      }
+      this.cb.onGameOver(sum)
+      this.paused = true
+      this.awaitingNextWave = false
+    }
   }
 
   private buildSpawnPlan() {
@@ -346,6 +381,10 @@ export class SimEngine {
         e.alive = false
         this.escaped++
         this._state.stats.totalEscapes++
+
+        // Apply escape damage immediately (deterministic; no RNG).
+        this.applyEscapeDamageNow(1)
+        if (this.paused) return
       }
     }
 
@@ -467,7 +506,11 @@ export class SimEngine {
     const baseHPLevel = Math.max(1, Math.floor(this._state.towerUpgrades.baseHPLevel))
     const base = this.cfg.tower.baseHP0 * Math.pow(1 + this.cfg.tower.baseHPGrowth, baseHPLevel - 1)
     const maxHP = Math.max(1, base + mods.baseHPBonus)
-    this._state.baseHP = clamp(this._state.baseHP + maxHP * pct * dtSec, 0, maxHP)
+
+    // Repair heals a fraction of *missing* HP per second. This avoids instantly refilling
+    // to full when only slightly damaged, while still allowing meaningful recovery.
+    const missing = Math.max(0, maxHP - this._state.baseHP)
+    this._state.baseHP = clamp(this._state.baseHP + missing * pct * dtSec, 0, maxHP)
   }
 
   private finishWave() {
@@ -480,15 +523,14 @@ export class SimEngine {
       cfg: this.cfg,
     })
 
+    // Escape damage is applied instantly on each escape; keep the report consistent.
+    report.baseDamageFromEscapes = this.escapeDamageAppliedThisWave
+
     const pal = calcPaladyumRewardForWave(this._state, this.snapshot.wave, this.cfg)
 
     this._state.gold += report.rewardGold
     this._state.points += report.rewardPoints
     ;(this._state as any).paladyumCarry = pal.nextCarry
-
-    if (this.cfg.progression.enableEscapeDamage && report.baseDamageFromEscapes > 0) {
-      this._state.baseHP = Math.max(0, this._state.baseHP - report.baseDamageFromEscapes)
-    }
 
     if (this._state.baseHP <= 0) {
       const sum: RunSummary = {

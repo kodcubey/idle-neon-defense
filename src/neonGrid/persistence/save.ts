@@ -103,6 +103,12 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
   if (typeof merged.towerUpgrades.rangeLevel !== 'number') merged.towerUpgrades.rangeLevel = base.towerUpgrades.rangeLevel
   if (typeof merged.towerUpgrades.baseHPLevel !== 'number') merged.towerUpgrades.baseHPLevel = base.towerUpgrades.baseHPLevel
 
+  // Clamp upgrades to config max levels (important if balance changes across versions).
+  const rangeMax = config.tower.upgrades.maxLevels?.range
+  if (typeof rangeMax === 'number' && Number.isFinite(rangeMax)) {
+    merged.towerUpgrades.rangeLevel = Math.max(1, Math.min(Math.floor(rangeMax), Math.floor(merged.towerUpgrades.rangeLevel)))
+  }
+
   if (typeof (merged.towerUpgrades as any).armorPierceLevel !== 'number') (merged.towerUpgrades as any).armorPierceLevel = (base.towerUpgrades as any).armorPierceLevel
   if (typeof (merged.towerUpgrades as any).fortifyLevel !== 'number') (merged.towerUpgrades as any).fortifyLevel = (base.towerUpgrades as any).fortifyLevel
   if (typeof (merged.towerUpgrades as any).repairLevel !== 'number') (merged.towerUpgrades as any).repairLevel = (base.towerUpgrades as any).repairLevel
