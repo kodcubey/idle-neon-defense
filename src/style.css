@@ -155,6 +155,54 @@ body {
   padding: 8px 10px;
 }
 
+input {
+  appearance: none;
+  border: 1px solid var(--stroke-strong);
+  background: rgba(14, 18, 38, 0.35);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  min-width: 0;
+  outline: none;
+  transition: filter 120ms ease, transform 120ms ease, border-color 120ms ease;
+}
+
+input::placeholder {
+  color: color-mix(in srgb, var(--muted) 85%, transparent);
+}
+
+input:focus {
+  border-color: rgba(34, 245, 255, 0.75);
+  filter: drop-shadow(0 0 10px rgba(34, 245, 255, 0.18));
+}
+
+.ng-menu .panel-header {
+  padding: 10px 14px;
+}
+
+.ng-menu .panel-body {
+  padding: 12px 14px;
+  line-height: 1.35;
+}
+
+.ng-menu-title {
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.ng-menu-actions {
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ng-menu-actions .btn {
+  width: 100%;
+  text-align: left;
+}
+
 .btn {
   appearance: none;
   border: 1px solid var(--stroke-strong);

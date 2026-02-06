@@ -446,12 +446,12 @@ export function createUIStateMachine(args: UIArgs) {
   }
 
   function renderMenu() {
-    const panel = el('div', 'panel')
-    panel.style.maxWidth = '560px'
-    panel.style.margin = 'auto'
+    const panel = el('div', 'panel ng-menu')
+    panel.style.width = 'min(560px, calc(100vw - 24px))'
+    panel.style.margin = '18px auto'
 
     const header = el('div', 'panel-header')
-    const title = el('div')
+    const title = el('div', 'ng-menu-title')
     title.textContent = 'NEON GRID'
     header.appendChild(title)
 
@@ -487,7 +487,7 @@ export function createUIStateMachine(args: UIArgs) {
     const pal = lastState?.points ?? 0
     balances.innerHTML = `Paladyum: <span class="mono">${formatPaladyum(pal)}</span>`
 
-    const row = el('div', 'stack')
+    const row = el('div', 'stack ng-menu-actions')
     row.style.marginTop = '12px'
 
     const cont = btn('Continue', 'btn btn-primary')
