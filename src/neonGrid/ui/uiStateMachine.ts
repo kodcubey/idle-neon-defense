@@ -5,7 +5,26 @@ import { applyCloudMetaToState, type FirebaseSync } from '../persistence/firebas
 import { createNewState, saveSnapshot } from '../persistence/save'
 import { btn, clear, el, hr, kv } from './dom'
 import { formatNumber, formatPaladyumInt, formatPct, formatTimeMMSS } from './format'
-import { calcPenaltyFactor, calcWaveSnapshot, clamp, calcDPS, aggregateModules } from '../sim/deterministic'
+import {
+  aggregateModules,
+  baseDmg,
+  calcDPS,
+  calcPenaltyFactor,
+  calcWaveSnapshot,
+  clamp,
+  critAverageDamageMult,
+  effectiveCritParams,
+  effectiveEnemySpeedMult,
+  fireRate,
+  towerArmorPierceBonus,
+  towerEscapeDamageMult,
+  towerGoldMult,
+  towerMultiShotCount,
+  towerRange,
+  towerRepairPctPerSec,
+  towerEnemySpeedMult,
+} from '../sim/deterministic'
+import { calcBaseHPMax } from '../sim/actions'
 import { metaUpgradeCostPoints, moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from '../sim/costs'
 
 export type UIScreen = 'boot' | 'menu' | 'login' | 'hud' | 'modules' | 'settings' | 'stats' | 'offline'
@@ -344,6 +363,73 @@ export function createUIStateMachine(args: UIArgs) {
     }
   }
 
+  function computeTowerUIStats(state: GameState) {
+    const mods = aggregateModules(state, config)
+
+    const baseDamage = baseDmg(state.towerUpgrades.damageLevel, config)
+    const damagePerShot = Math.max(0, baseDamage * mods.dmgMult + mods.dmgFlat)
+    const crit = effectiveCritParams(state, config, mods)
+    const critAvg = critAverageDamageMult(state, config, mods)
+
+    const fireRateBase = fireRate(state.towerUpgrades.fireRateLevel, config)
+    const fireRateFinal = Math.max(0.1, fireRateBase * (1 + mods.fireRateBonus))
+
+    const rangeBase = towerRange(state.towerUpgrades.rangeLevel, config)
+    const rangeFinal = Math.max(0, rangeBase + mods.rangeBonus)
+
+    const armorPierceBonus = towerArmorPierceBonus(state, config)
+    const armorPierceFinal = clamp(mods.armorPierce + armorPierceBonus, 0, 0.9)
+
+    const baseTargets = towerMultiShotCount(state, config)
+    const targetsFinal = Math.max(1, Math.floor(Math.max(baseTargets, mods.shotCount)))
+
+    const maxHP = Math.max(1, calcBaseHPMax(state, config))
+    const repairPct = towerRepairPctPerSec(state, config)
+
+    const slowBaseMult = towerEnemySpeedMult(state, config)
+    const slowFinalMult = effectiveEnemySpeedMult(state, config, mods)
+
+    const escapeDamageMult = towerEscapeDamageMult(state, config)
+
+    const goldMultFinal = Math.max(0, mods.goldMult * towerGoldMult(state, config))
+
+    const dps = calcDPS(state, config)
+
+    return {
+      mods,
+      dps,
+
+      baseDamage,
+      damagePerShot,
+      crit,
+      critAvg,
+
+      fireRateBase,
+      fireRateFinal,
+
+      rangeBase,
+      rangeFinal,
+
+      armorPierceBonus,
+      armorPierceFinal,
+
+      baseTargets,
+      targetsFinal,
+
+      maxHP,
+      repairPct,
+
+      slowBaseMult,
+      slowFinalMult,
+
+      escapeDamageMult,
+      goldMultFinal,
+
+      invulnDurationSec: mods.invulnDurationSec,
+      invulnCooldownSec: mods.invulnCooldownSec,
+    }
+  }
+
   function setScreen(next: UIScreen) {
     screen = next
     if (game && (next === 'menu' || next === 'login' || next === 'boot' || next === 'offline')) {
@@ -569,6 +655,13 @@ export function createUIStateMachine(args: UIArgs) {
       showSettingsModal()
     }
 
+    const tower = btn('Tower', 'btn')
+    tower.onclick = () => {
+      if (!requireLogin()) return
+      if (game) game.setPaused(true)
+      showTowerModal()
+    }
+
     const metaUpg = btn('Meta Upgrades', 'btn')
     metaUpg.onclick = () => {
       if (!lastState) return
@@ -576,7 +669,7 @@ export function createUIStateMachine(args: UIArgs) {
       void showMetaUpgradesModal()
     }
 
-    row.append(newRun, metaUpg, modules, stats, settings)
+    row.append(newRun, metaUpg, modules, tower, stats, settings)
 
     const card = el('div', 'panel')
     card.style.marginTop = '12px'
@@ -1164,13 +1257,28 @@ export function createUIStateMachine(args: UIArgs) {
         <div>Killed: <span class="mono">${sim.killed}</span> · Escaped: <span class="mono">${sim.escaped}</span></div>
       `
 
-      const dpsNow = calcDPS(state, config)
+      const t = computeTowerUIStats(state)
       const statsBox = el('div', 'muted')
       statsBox.style.fontSize = '12px'
       statsBox.style.marginTop = '6px'
+
+      const critText =
+        !Number.isFinite(t.crit.everyN) || t.crit.everyN === Number.POSITIVE_INFINITY
+          ? '—'
+          : `1/${Math.floor(t.crit.everyN)} ×${t.crit.mult.toFixed(2)}`
+      const invText = t.invulnDurationSec > 0 && t.invulnCooldownSec > 0 ? `${t.invulnDurationSec.toFixed(2)}s / ${t.invulnCooldownSec.toFixed(0)}s` : '—'
       statsBox.innerHTML = `
-        <div>Build DPS: <span class="mono">${formatNumber(dpsNow, state.settings.numberFormat)}</span></div>
-        <div>Armor Pierce: <span class="mono">${formatPct(sim.tower.armorPierce)}</span></div>
+        <div>DPS: <span class="mono">${formatNumber(t.dps, state.settings.numberFormat)}</span></div>
+        <div>Damage/shot: <span class="mono">${formatNumber(t.damagePerShot, state.settings.numberFormat)}</span></div>
+        <div>Fire rate: <span class="mono">${t.fireRateFinal.toFixed(2)}/s</span></div>
+        <div>Range: <span class="mono">${Math.floor(t.rangeFinal)}</span></div>
+        <div>Targets: <span class="mono">${t.targetsFinal}</span></div>
+        <div>Crit: <span class="mono">${critText}</span></div>
+        <div>Armor Pierce: <span class="mono">${formatPct(t.armorPierceFinal)}</span></div>
+        <div>Max HP: <span class="mono">${formatNumber(t.maxHP, state.settings.numberFormat)}</span></div>
+        <div>Regen: <span class="mono">${formatPct(t.repairPct)}/s</span></div>
+        <div>Gold Mult: <span class="mono">x${t.goldMultFinal.toFixed(2)}</span></div>
+        <div>Invuln: <span class="mono">${invText}</span></div>
       `
 
       ub.append(hr(), liveTitle, live, statsBox)
@@ -1293,6 +1401,155 @@ export function createUIStateMachine(args: UIArgs) {
       panels.append(upg, modsPanel)
       center.appendChild(panels)
     }
+  }
+
+  function buildTowerPanel(args: { backLabel: string; onBack: () => void }) {
+    const panel = el('div', 'panel')
+    panel.style.pointerEvents = 'auto'
+
+    const header = el('div', 'panel-header')
+    header.appendChild(el('div')).textContent = 'Tower Stats'
+
+    const back = btn(args.backLabel, 'btn')
+    back.onclick = args.onBack
+    header.appendChild(back)
+
+    const body = el('div', 'panel-body')
+
+    if (!lastState) {
+      body.appendChild(el('div', 'muted')).textContent = 'No tower stats available.'
+      panel.append(header, body)
+      return panel
+    }
+
+    const t = computeTowerUIStats(lastState)
+
+    const critText =
+      !Number.isFinite(t.crit.everyN) || t.crit.everyN === Number.POSITIVE_INFINITY
+        ? '—'
+        : `1/${Math.floor(t.crit.everyN)} ×${t.crit.mult.toFixed(2)}`
+    const critAvgText = `x${t.critAvg.toFixed(3)}`
+    const invText = t.invulnDurationSec > 0 && t.invulnCooldownSec > 0 ? `${t.invulnDurationSec.toFixed(2)}s / ${t.invulnCooldownSec.toFixed(0)}s` : '—'
+
+    body.append(
+      kv('DPS', formatNumber(t.dps, lastState.settings.numberFormat), true),
+      kv('Damage/shot', formatNumber(t.damagePerShot, lastState.settings.numberFormat), true),
+      kv('Fire rate', `${t.fireRateFinal.toFixed(3)}/s`, true),
+      kv('Range', String(Math.floor(t.rangeFinal)), true),
+      kv('Targets', String(t.targetsFinal), true),
+      kv('Crit', `${critText} (avg ${critAvgText})`, true),
+      kv('Armor Pierce', formatPct(t.armorPierceFinal), true),
+      kv('Max HP', formatNumber(t.maxHP, lastState.settings.numberFormat), true),
+      kv('Regen', `${formatPct(t.repairPct)}/s`, true),
+      kv('Slow (enemy speed mult)', t.slowFinalMult.toFixed(3), true),
+      kv('Escape Damage Mult', t.escapeDamageMult.toFixed(3), true),
+      kv('Gold Mult', `x${t.goldMultFinal.toFixed(3)}`, true),
+      kv('Invulnerability', invText, true),
+    )
+
+    body.appendChild(hr())
+
+    const breakdown = el('div', 'muted')
+    breakdown.style.fontSize = '12px'
+    breakdown.innerHTML = `<div style="font-weight:800">Breakdown</div>`
+
+    const apFromModules = t.mods.armorPierce - config.tower.armorPierce0
+    const slowFromModules = t.mods.enemySpeedMult
+
+    const row = (label: string, text: string) => {
+      const d = el('div', 'muted')
+      d.innerHTML = `• <span style="font-weight:800">${label}:</span> ${text}`
+      return d
+    }
+
+    breakdown.append(
+      row(
+        'Damage/shot',
+        `base ${formatNumber(t.baseDamage, lastState!.settings.numberFormat)} × mods ${t.mods.dmgMult.toFixed(3)} ${t.mods.dmgFlat >= 0 ? '+' : ''}${t.mods.dmgFlat.toFixed(1)} = <span class="mono">${formatNumber(t.damagePerShot, lastState!.settings.numberFormat)}</span>`,
+      ),
+      row(
+        'Fire rate',
+        `base ${t.fireRateBase.toFixed(3)}/s × (1 ${t.mods.fireRateBonus >= 0 ? '+' : ''}${(t.mods.fireRateBonus * 100).toFixed(1)}%) = <span class="mono">${t.fireRateFinal.toFixed(3)}/s</span>`,
+      ),
+      row(
+        'Range',
+        `base ${Math.floor(t.rangeBase)} ${t.mods.rangeBonus >= 0 ? '+' : ''}${t.mods.rangeBonus.toFixed(1)} (mods) = <span class="mono">${Math.floor(t.rangeFinal)}</span>`,
+      ),
+      row(
+        'Armor Pierce',
+        `base ${formatPct(config.tower.armorPierce0)} ${apFromModules >= 0 ? '+' : ''}${(apFromModules * 100).toFixed(1)}% (mods) + ${formatPct(t.armorPierceBonus)} (upgrade) = <span class="mono">${formatPct(t.armorPierceFinal)}</span>`,
+      ),
+      row(
+        'Targets',
+        `max(upgrade ${t.baseTargets}, mods ${t.mods.shotCount}) = <span class="mono">${t.targetsFinal}</span>`,
+      ),
+      row(
+        'Max HP',
+        `baseHP track uses mods: +${t.mods.baseHPBonus.toFixed(1)} and ×${t.mods.baseHPMult.toFixed(3)} ⇒ <span class="mono">${formatNumber(t.maxHP, lastState!.settings.numberFormat)}</span>`,
+      ),
+      row(
+        'Slow',
+        `upgrade ${t.slowBaseMult.toFixed(3)} × mods ${slowFromModules.toFixed(3)} = <span class="mono">${t.slowFinalMult.toFixed(3)}</span>`,
+      ),
+      row(
+        'Gold Mult',
+        `upgrade x${towerGoldMult(lastState!, config).toFixed(3)} × mods x${t.mods.goldMult.toFixed(3)} = <span class="mono">x${t.goldMultFinal.toFixed(3)}</span>`,
+      ),
+    )
+
+    body.appendChild(breakdown)
+
+    body.appendChild(hr())
+
+    const modsTitle = el('div')
+    modsTitle.style.fontWeight = '800'
+    modsTitle.textContent = 'Modules (Active Effects)'
+    body.appendChild(modsTitle)
+
+    const maxSlots = Math.max(1, Math.floor(config.modules.slotCount))
+    const unlockedSlots = Math.max(1, Math.min(maxSlots, Math.floor(lastState.moduleSlotsUnlocked ?? 1)))
+    let anyEquipped = false
+    for (let slot = 1; slot <= unlockedSlots; slot++) {
+      const id = lastState.modulesEquipped[slot]
+      if (!id) continue
+      anyEquipped = true
+
+      const def = config.modules.defs.find((d) => d.id === id)
+      const rawLevel = Math.max(1, Math.floor(lastState.moduleLevels[id] ?? 1))
+
+      const title = el('div', 'mono')
+      title.style.fontWeight = '800'
+      title.style.marginTop = '6px'
+      title.textContent = `S${slot}: ${def?.nameTR ?? id} (Lv ${rawLevel})`
+
+      const effect = el('div', 'muted')
+      effect.style.fontSize = '12px'
+      effect.textContent = def ? moduleEffectText(def, rawLevel, config) : '—'
+
+      body.append(title, effect)
+    }
+    if (!anyEquipped) {
+      const none = el('div', 'muted')
+      none.style.fontSize = '12px'
+      none.textContent = 'No modules equipped.'
+      body.appendChild(none)
+    }
+
+    panel.append(header, body)
+    return panel
+  }
+
+  function showTowerModal() {
+    const panel = buildTowerPanel({
+      backLabel: 'Close',
+      onBack: () => overlay.remove(),
+    })
+    panel.style.width = 'min(920px, calc(100vw - 20px))'
+
+    const overlay = mountModal(panel)
+    overlay.addEventListener('pointerdown', (e) => {
+      if (e.target === overlay) overlay.remove()
+    })
   }
 
   function renderUpgradesTabs(onChanged: () => void): HTMLElement {
