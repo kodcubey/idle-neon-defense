@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import type { GameConfig, GameState } from '../../types'
 import { SimEngine, type SimCallbacks, type SimPublic } from '../../sim/SimEngine'
 import { calcBaseHPMax } from '../../sim/actions'
+import { calcPaladyumDropChancePerKill } from '../../sim/deterministic'
 
 export class GameScene extends Phaser.Scene {
   private cfg!: GameConfig
@@ -20,13 +21,18 @@ export class GameScene extends Phaser.Scene {
 
   private prevEnemyHP = new Map<number, number>()
   private prevEnemyAlive = new Map<number, boolean>()
-  private enemyHitUntilSec = new Map<number, number>()
+  private enemyHitFx = new Map<number, { untilSec: number; crit: boolean }>()
 
   private enemyDeathFx: Array<{ x: number; y: number; t0: number; kind: 'kill' | 'escape' }> = []
 
+  private paladyumTextPool: Phaser.GameObjects.Text[] = []
+
   private prevProjectilePos = new Map<number, { x: number; y: number }>()
   private prevProjectileAlive = new Map<number, boolean>()
+
+  private projectileImpactFx: Array<{ x: number; y: number; t0: number; crit: boolean; a: number; id: number; targetId: number }> = []
   private muzzleFxUntilSec = 0
+  private muzzleCritUntilSec = 0
   private prevBaseHP = Number.NaN
 
   constructor() {
@@ -143,6 +149,7 @@ export class GameScene extends Phaser.Scene {
 
     // Maintain compact effect buffers to keep perf stable.
     if (this.enemyDeathFx.length > 64) this.enemyDeathFx = this.enemyDeathFx.slice(-64)
+    if (this.projectileImpactFx.length > 96) this.projectileImpactFx = this.projectileImpactFx.slice(-96)
 
     // Background grid
     const pal = this.cfg.ui.palette
@@ -186,14 +193,7 @@ export class GameScene extends Phaser.Scene {
     const towerBob = reduceFx ? 0 : 0.8 * Math.sin(this.vTimeSec * 2.2)
     const towerX = pub.tower.pos.x
     const towerY = pub.tower.pos.y + towerBob
-    this.gfx.fillStyle(magenta, 0.95)
-    this.drawRegularPolygon(towerX, towerY, 10, 5, -Math.PI / 2)
-
-    if (!reduceFx) {
-      const glowR = 14 + 1.5 * (0.5 + 0.5 * Math.sin(this.vTimeSec * 2.0 + 0.4))
-      this.fx.lineStyle(2, magenta, 0.12)
-      this.fx.strokeCircle(towerX, towerY, glowR)
-    }
+    this.drawTower({ x: towerX, y: towerY, t: this.vTimeSec, reduceFx, cyan, magenta, lime, text })
 
     // Base HP (shown as a bar above the tower/base)
     const maxHP = Math.max(1, calcBaseHPMax(pub.state, this.cfg))
@@ -229,6 +229,7 @@ export class GameScene extends Phaser.Scene {
     if (pub.projectiles.length > 0) {
       this.gfx.fillStyle(cyan, 0.9)
       let shotThisFrame = false
+      let critShotThisFrame = false
       for (const p of pub.projectiles) {
         const wasAlive = this.prevProjectileAlive.get(p.id) ?? false
         this.prevProjectileAlive.set(p.id, p.alive)
@@ -236,22 +237,71 @@ export class GameScene extends Phaser.Scene {
         const prev = this.prevProjectilePos.get(p.id)
         this.prevProjectilePos.set(p.id, { x: p.x, y: p.y })
 
-        if (!p.alive) continue
+        // Detect impact (projectile died this frame). We treat all deaths as hits;
+        // missing is rare (target gone) and still looks fine as a tiny fizz.
+        if (!reduceFx && wasAlive && !p.alive) {
+          const a = prev ? Math.atan2(p.y - prev.y, p.x - prev.x) : 0
+          const crit = p.damageMult > 1.000001
+          this.projectileImpactFx.push({ x: p.x, y: p.y, t0: this.vTimeSec, crit, a, id: p.id, targetId: p.targetEnemyId })
 
-        if (!wasAlive) shotThisFrame = true
-
-        if (!reduceFx && prev && wasAlive) {
-          // Additive trail.
-          this.fx.lineStyle(2, cyan, 0.12)
-          this.fx.lineBetween(prev.x, prev.y, p.x, p.y)
-          this.fx.fillStyle(cyan, 0.06)
-          this.fx.fillCircle(p.x, p.y, 5.5)
+          // Also drive enemy hit flash so impacts + enemy feedback match.
+          // If the enemy died this frame, the death burst will dominate anyway.
+          this.setEnemyHitFx(p.targetEnemyId, crit ? 0.22 : 0.16, crit)
         }
 
-        this.gfx.fillCircle(p.x, p.y, 2.5)
+        if (!p.alive) continue
+
+        if (!wasAlive) {
+          shotThisFrame = true
+          if (p.damageMult > 1.000001) critShotThisFrame = true
+        }
+
+        const isCrit = p.damageMult > 1.000001
+        const c = isCrit ? lime : cyan
+
+        if (!reduceFx && prev && wasAlive) {
+          // Directional additive trail (thicker for crits).
+          const dx = p.x - prev.x
+          const dy = p.y - prev.y
+          const dist = Math.hypot(dx, dy)
+          const a = clamp01((dist / 18) * (isCrit ? 1.15 : 1))
+          this.fx.lineStyle(isCrit ? 4 : 3, c, (isCrit ? 0.13 : 0.11) * a)
+          this.fx.lineBetween(prev.x, prev.y, p.x, p.y)
+
+          // Soft glow head.
+          this.fx.fillStyle(c, (isCrit ? 0.08 : 0.06) * a)
+          this.fx.fillCircle(p.x, p.y, isCrit ? 7.5 : 6.0)
+        }
+
+        // Bolt-style projectile body: a short streak in travel direction.
+        if (prev) {
+          const dx = p.x - prev.x
+          const dy = p.y - prev.y
+          const dist = Math.hypot(dx, dy)
+          const inv = dist <= 1e-6 ? 0 : 1 / dist
+          const nx = dx * inv
+          const ny = dy * inv
+          const len = (isCrit ? 9.5 : 7.5) + Math.min(10, dist * 0.55)
+          const bx0 = p.x - nx * len
+          const by0 = p.y - ny * len
+          const bx1 = p.x + nx * 2.2
+          const by1 = p.y + ny * 2.2
+
+          this.gfx.lineStyle(isCrit ? 3 : 2, c, 0.95)
+          this.gfx.lineBetween(bx0, by0, bx1, by1)
+          this.gfx.fillStyle(c, 0.9)
+          this.gfx.fillCircle(p.x, p.y, isCrit ? 2.9 : 2.4)
+        } else {
+          // Fallback first frame.
+          this.gfx.fillStyle(c, 0.9)
+          this.gfx.fillCircle(p.x, p.y, isCrit ? 3.0 : 2.5)
+        }
       }
 
-      if (!reduceFx && shotThisFrame) this.muzzleFxUntilSec = Math.max(this.muzzleFxUntilSec, this.vTimeSec + 0.09)
+      if (!reduceFx && shotThisFrame) {
+        this.muzzleFxUntilSec = Math.max(this.muzzleFxUntilSec, this.vTimeSec + 0.09)
+        if (critShotThisFrame) this.muzzleCritUntilSec = Math.max(this.muzzleCritUntilSec, this.vTimeSec + 0.12)
+      }
     }
 
     // Cleanup old projectile positions.
@@ -265,12 +315,65 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Projectile impacts.
+    if (!reduceFx && this.projectileImpactFx.length > 0) {
+      const keep: typeof this.projectileImpactFx = []
+      for (const fx of this.projectileImpactFx) {
+        const age = this.vTimeSec - fx.t0
+        const dur = fx.crit ? 0.28 : 0.22
+        if (age < 0 || age > dur) continue
+        keep.push(fx)
+
+        const k = clamp01(1 - age / dur)
+        const c = fx.crit ? lime : cyan
+        const r = (fx.crit ? 6 : 5) + age * (fx.crit ? 90 : 70)
+
+        this.fx.lineStyle(fx.crit ? 3 : 2, c, 0.16 * k)
+        this.fx.strokeCircle(fx.x, fx.y, r)
+        this.fx.lineStyle(2, magenta, 0.06 * k)
+        this.fx.strokeCircle(fx.x, fx.y, r * 0.62)
+        this.fx.fillStyle(c, 0.03 * k)
+        this.fx.fillCircle(fx.x, fx.y, r * 0.35)
+
+        // Mini sparks (deterministic): 3 rays for normal, 5 for crit.
+        const rays = fx.crit ? 5 : 3
+        const baseLen = fx.crit ? 18 : 13
+        const spread = fx.crit ? 0.9 : 0.75
+        const phase = (fx.id % 17) * 0.37
+        for (let i = 0; i < rays; i++) {
+          // Use a mix of travel direction and a deterministic offset.
+          const off = (i - (rays - 1) / 2) * spread + 0.25 * Math.sin(phase + i * 1.7)
+          const a = fx.a + off
+          const len = baseLen * (0.55 + 0.45 * Math.sin(phase + i * 2.1 + 1.2))
+          const x0 = fx.x + Math.cos(a) * (4 + (1 - k) * 3)
+          const y0 = fx.y + Math.sin(a) * (4 + (1 - k) * 3)
+          const x1 = x0 + Math.cos(a) * len * k
+          const y1 = y0 + Math.sin(a) * len * k
+
+          this.fx.lineStyle(fx.crit ? 3 : 2, c, (fx.crit ? 0.13 : 0.11) * k)
+          this.fx.lineBetween(x0, y0, x1, y1)
+          this.fx.lineStyle(2, magenta, 0.05 * k)
+          this.fx.lineBetween(x0, y0, x1, y1)
+        }
+      }
+      this.projectileImpactFx = keep
+    }
+
     // Muzzle flash when new projectile(s) appear.
     if (!reduceFx && this.vTimeSec < this.muzzleFxUntilSec) {
       const k = clamp01((this.muzzleFxUntilSec - this.vTimeSec) / 0.09)
       const r = 10 + (1 - k) * 18
-      this.fx.lineStyle(2, cyan, 0.14 * k)
+      const isCrit = this.vTimeSec < this.muzzleCritUntilSec
+      const c = isCrit ? lime : cyan
+      const w = isCrit ? 3 : 2
+      this.fx.lineStyle(w, c, (isCrit ? 0.16 : 0.14) * k)
       this.fx.strokeCircle(towerX, towerY, r)
+
+      if (isCrit) {
+        const k2 = clamp01((this.muzzleCritUntilSec - this.vTimeSec) / 0.12)
+        this.fx.lineStyle(2, magenta, 0.09 * k2)
+        this.fx.strokeCircle(towerX, towerY, r + 10 + (1 - k2) * 8)
+      }
     }
 
     // Enemies
@@ -281,12 +384,23 @@ export class GameScene extends Phaser.Scene {
       // Detect damage and transitions.
       if (e.alive) {
         if (typeof prevHP === 'number' && e.hp < prevHP - 1e-9) {
-          this.enemyHitUntilSec.set(e.id, this.vTimeSec + (reduceFx ? 0.08 : 0.14))
+          // Soft hit feedback (impact FX may overwrite with stronger crit-aware flash).
+          this.setEnemyHitFx(e.id, reduceFx ? 0.08 : 0.12, false)
         }
       } else {
         if (prevAlive) {
           const kind: 'kill' | 'escape' = e.hp <= 0 ? 'kill' : 'escape'
           this.enemyDeathFx.push({ x: e.x, y: e.y, t0: this.vTimeSec, kind })
+
+          // Paladyum drop visual: show "+1" at the dead enemy position.
+          // Must match SimEngine logic (detU01 + calcPaladyumDropChancePerKill).
+          if (kind === 'kill') {
+            const chance = calcPaladyumDropChancePerKill({ wave: pub.wave.wave, spawnCount: pub.wave.spawnCount, cfg: this.cfg })
+            if (chance > 0) {
+              const u = detU01(pub.wave.wave, e.index1, e.id)
+              if (u < chance) this.spawnPaladyumPlusOne(e.x, e.y, reduceFx)
+            }
+          }
         }
       }
 
@@ -306,11 +420,15 @@ export class GameScene extends Phaser.Scene {
         this.fx.strokeCircle(e.x, e.y, r + 3.5)
       }
 
-      const hitUntil = this.enemyHitUntilSec.get(e.id) ?? -1
-      if (!reduceFx && hitUntil > this.vTimeSec) {
-        const k = clamp01((hitUntil - this.vTimeSec) / 0.14)
-        this.fx.lineStyle(2, text, 0.18 * k)
-        this.fx.strokeCircle(e.x, e.y, r + 5 + (1 - k) * 6)
+      const hit = this.enemyHitFx.get(e.id)
+      if (!reduceFx && hit && hit.untilSec > this.vTimeSec) {
+        const dur = hit.crit ? 0.22 : 0.16
+        const k = clamp01((hit.untilSec - this.vTimeSec) / dur)
+        const hc = hit.crit ? lime : cyan
+        this.fx.lineStyle(hit.crit ? 3 : 2, hc, 0.17 * k)
+        this.fx.strokeCircle(e.x, e.y, r + 5 + (1 - k) * (hit.crit ? 9 : 6))
+        this.fx.lineStyle(2, magenta, 0.06 * k)
+        this.fx.strokeCircle(e.x, e.y, r + 2 + (1 - k) * (hit.crit ? 6 : 4))
       }
 
       // HP bar
@@ -324,9 +442,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Cleanup hit markers.
-    if (this.enemyHitUntilSec.size > 2000) {
-      for (const [id, until] of this.enemyHitUntilSec) {
-        if (until < this.vTimeSec - 0.5) this.enemyHitUntilSec.delete(id)
+    if (this.enemyHitFx.size > 2000) {
+      for (const [id, hit] of this.enemyHitFx) {
+        if (hit.untilSec < this.vTimeSec - 0.5) this.enemyHitFx.delete(id)
       }
     }
 
@@ -364,6 +482,115 @@ export class GameScene extends Phaser.Scene {
     this.gfx.closePath()
     this.gfx.fillPath()
   }
+
+  private drawTower(args: {
+    x: number
+    y: number
+    t: number
+    reduceFx: boolean
+    cyan: number
+    magenta: number
+    lime: number
+    text: number
+  }) {
+    const { x, y, t, reduceFx, cyan, magenta, lime, text } = args
+
+    // Base body (pentagon) with a darker cut-out core for depth.
+    this.gfx.fillStyle(magenta, 0.92)
+    this.drawRegularPolygon(x, y, 11, 5, -Math.PI / 2)
+
+    this.gfx.fillStyle(0x000000, 0.22)
+    this.drawRegularPolygon(x, y + 0.6, 7.5, 5, -Math.PI / 2)
+
+    // Outline + inner core.
+    this.gfx.lineStyle(2, text, 0.12)
+    this.gfx.strokeCircle(x, y, 8.5)
+    this.gfx.fillStyle(lime, 0.22)
+    this.gfx.fillCircle(x, y, 4.2)
+
+    if (reduceFx) return
+
+    // Energy fins (animated subtle rotation).
+    const rot = t * 1.15
+    this.fx.lineStyle(3, cyan, 0.08)
+    for (let i = 0; i < 3; i++) {
+      const a = rot + (i / 3) * Math.PI * 2
+      const x0 = x + Math.cos(a) * 7
+      const y0 = y + Math.sin(a) * 7
+      const x1 = x + Math.cos(a) * 15
+      const y1 = y + Math.sin(a) * 15
+      this.fx.lineBetween(x0, y0, x1, y1)
+    }
+
+    // Outer glow ring.
+    const glowR = 14 + 1.5 * (0.5 + 0.5 * Math.sin(t * 2.0 + 0.4))
+    this.fx.lineStyle(2, magenta, 0.12)
+    this.fx.strokeCircle(x, y, glowR)
+
+    // Orbiting accent dot.
+    const oa = t * 2.6
+    const ox = x + Math.cos(oa) * 12.5
+    const oy = y + Math.sin(oa) * 12.5
+    this.fx.fillStyle(cyan, 0.18)
+    this.fx.fillCircle(ox, oy, 3.2)
+    this.fx.fillStyle(cyan, 0.06)
+    this.fx.fillCircle(ox, oy, 7.0)
+  }
+
+  private spawnPaladyumPlusOne(x: number, y: number, reduceFx: boolean) {
+    const pal = this.cfg.ui.palette
+
+    const t = this.paladyumTextPool.pop()
+    const txt =
+      t ??
+      this.add
+        .text(0, 0, '+1', {
+          fontSize: '16px',
+          color: pal.neonLime,
+          stroke: pal.neonCyan,
+          strokeThickness: 2,
+        })
+        .setOrigin(0.5, 0.5)
+        .setDepth(50)
+
+    txt.setVisible(true)
+    txt.setAlpha(1)
+    txt.setPosition(x, y - 10)
+    txt.setScale(0.35)
+
+    const dur = reduceFx ? 420 : 560
+    const dy = reduceFx ? 18 : 26
+    const s1 = reduceFx ? 0.95 : 1.18
+
+    this.tweens.add({
+      targets: txt,
+      y: y - 10 - dy,
+      scaleX: s1,
+      scaleY: s1,
+      alpha: 0,
+      ease: 'Cubic.Out',
+      duration: dur,
+      onComplete: () => {
+        txt.setVisible(false)
+        this.paladyumTextPool.push(txt)
+      },
+    })
+  }
+
+  private setEnemyHitFx(enemyId: number, durSec: number, crit: boolean) {
+    const id = Math.max(1, Math.floor(enemyId))
+    const untilSec = this.vTimeSec + Math.max(0.04, durSec)
+    const prev = this.enemyHitFx.get(id)
+    if (!prev) {
+      this.enemyHitFx.set(id, { untilSec, crit })
+      return
+    }
+
+    this.enemyHitFx.set(id, {
+      untilSec: Math.max(prev.untilSec, untilSec),
+      crit: prev.crit || crit,
+    })
+  }
 }
 
 function clamp01(x: number): number {
@@ -374,4 +601,30 @@ function clamp01(x: number): number {
 function hexTo0x(hex: string): number {
   // Accepts '#RRGGBB' or 'RRGGBB'.
   return Phaser.Display.Color.HexStringToColor(hex).color
+}
+
+function detU01(wave: number, index1: number, enemyId: number): number {
+  // Copy of SimEngine.detU01() to keep visuals perfectly in sync.
+  const w = Math.max(1, Math.floor(wave))
+  const i = Math.max(1, Math.floor(index1))
+  const e = Math.max(1, Math.floor(enemyId))
+
+  let x = 0
+  x = (x + Math.imul(w, 2246822519)) | 0
+  x = (x + Math.imul(i, 3266489917)) | 0
+  x = (x + Math.imul(e, 668265263)) | 0
+
+  x ^= x >>> 16
+  x = Math.imul(x, 2246822507)
+  x ^= x >>> 13
+  x = Math.imul(x, 3266489909)
+  x ^= x >>> 16
+
+  const u = (x >>> 0) / 4294967296
+  return clampNum(u, 0, 0.999999999)
+}
+
+function clampNum(x: number, min: number, max: number): number {
+  if (!Number.isFinite(x)) return max
+  return Math.max(min, Math.min(max, x))
 }

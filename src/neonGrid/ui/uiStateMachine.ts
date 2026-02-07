@@ -532,9 +532,9 @@ export function createUIStateMachine(args: UIArgs) {
   }
 
   function renderMenu() {
-    const panel = el('div', 'panel ng-menu')
-    panel.style.width = 'min(560px, calc(100vw - 24px))'
-    panel.style.margin = '18px auto'
+    const layout = el('div', 'ng-menu-layout')
+
+    const panel = el('div', 'panel ng-menu ng-menu-sidebar')
 
     const header = el('div', 'panel-header')
     const title = el('div', 'ng-menu-title')
@@ -546,6 +546,8 @@ export function createUIStateMachine(args: UIArgs) {
     header.appendChild(ver)
 
     const body = el('div', 'panel-body')
+
+    const content = el('div', 'ng-menu-content')
 
     const authLine = (() => {
       const st = firebaseSync?.getStatus()
@@ -582,6 +584,64 @@ export function createUIStateMachine(args: UIArgs) {
     const row = el('div', 'stack ng-menu-actions')
     row.style.marginTop = '12px'
 
+    const menuBtn = (label: string, iconSVG: string, iconTone: 'cyan' | 'magenta' | 'lime', extraClass?: string) => {
+      const b = btn('', 'btn' + (extraClass ? ` ${extraClass}` : ''))
+      b.textContent = ''
+
+      const ic = el('span', `ng-btn-icon ng-icon-${iconTone}`)
+      ic.innerHTML = iconSVG
+
+      const tx = el('span', 'ng-btn-label')
+      tx.textContent = label
+
+      b.append(ic, tx)
+      return b
+    }
+
+    const iconPlay = `
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M9 7.2v9.6c0 .7.8 1.1 1.4.7l8-4.8c.6-.4.6-1.2 0-1.6l-8-4.8c-.6-.4-1.4 0-1.4.9Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+      </svg>
+    `
+
+    const iconHex = `
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M8 3.8 16 3.8 20.2 10.9 16 20.2 8 20.2 3.8 10.9 8 3.8Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M8.8 10.6 11.3 8.1 15.9 12.7 13.4 15.2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    `
+
+    const iconGrid = `
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+      </svg>
+    `
+
+    const iconTower = `
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 3 6.5 7v5.4c0 4.3 2.7 7.9 5.5 8.6 2.8-.7 5.5-4.3 5.5-8.6V7L12 3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M9 10h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M10 14h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    `
+
+    const iconChart = `
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M5 19V5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M5 19h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M8 16v-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M12 16v-8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M16 16v-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    `
+
+    const iconGear = `
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z" stroke="currentColor" stroke-width="2"/>
+        <path d="M19.5 13.2v-2.4l-2.1-.6a7.9 7.9 0 0 0-.7-1.2l1-1.9-1.7-1.7-1.9 1a7.9 7.9 0 0 0-1.2-.7L13.2 4.5h-2.4l-.6 2.1a7.9 7.9 0 0 0-1.2.7l-1.9-1L5.4 8.1l1 1.9a7.9 7.9 0 0 0-.7 1.2l-2.1.6v2.4l2.1.6c.2.4.4.8.7 1.2l-1 1.9 1.7 1.7 1.9-1c.4.3.8.5 1.2.7l.6 2.1h2.4l.6-2.1c.4-.2.8-.4 1.2-.7l1.9 1 1.7-1.7-1-1.9c.3-.4.5-.8.7-1.2l2.1-.6Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+      </svg>
+    `
+
     const requireLogin = (): boolean => {
       if (!firebaseSync) {
         alert('Login is unavailable.')
@@ -600,7 +660,7 @@ export function createUIStateMachine(args: UIArgs) {
       return true
     }
 
-    const newRun = btn('New Run', 'btn')
+    const newRun = menuBtn('New Run', iconPlay, 'lime')
     newRun.onclick = () => {
       void (async () => {
         if (!game) return
@@ -633,7 +693,7 @@ export function createUIStateMachine(args: UIArgs) {
       })()
     }
 
-    const modules = btn('Modules', 'btn')
+    const modules = menuBtn('Modules', iconGrid, 'cyan')
     modules.onclick = () => {
       void (async () => {
         if (!requireLogin()) return
@@ -642,27 +702,27 @@ export function createUIStateMachine(args: UIArgs) {
       })()
     }
 
-    const stats = btn('Stats', 'btn')
+    const stats = menuBtn('Stats', iconChart, 'cyan')
     stats.onclick = () => {
       if (!requireLogin()) return
       if (game) game.setPaused(true)
       showStatsModal()
     }
 
-    const settings = btn('Settings', 'btn')
+    const settings = menuBtn('Settings', iconGear, 'magenta')
     settings.onclick = () => {
       if (game) game.setPaused(true)
       showSettingsModal()
     }
 
-    const tower = btn('Tower', 'btn')
+    const tower = menuBtn('Tower', iconTower, 'magenta')
     tower.onclick = () => {
       if (!requireLogin()) return
       if (game) game.setPaused(true)
       showTowerModal()
     }
 
-    const metaUpg = btn('Meta Upgrades', 'btn')
+    const metaUpg = menuBtn('Meta Upgrades', iconHex, 'lime')
     metaUpg.onclick = () => {
       if (!lastState) return
       if (!requireLogin()) return
@@ -809,11 +869,16 @@ export function createUIStateMachine(args: UIArgs) {
 
     body.appendChild(desc)
     if (balances) body.appendChild(balances)
-    body.append(row, card)
-    if (authPanel) body.appendChild(authPanel)
-    if (signedInPanel) body.appendChild(signedInPanel)
+    body.append(row)
+
+    // Right-side content (scrolls); keep existing cards/panels.
+    content.append(card)
+    if (authPanel) content.appendChild(authPanel)
+    if (signedInPanel) content.appendChild(signedInPanel)
+
     panel.append(header, body)
-    center.appendChild(panel)
+    layout.append(panel, content)
+    center.appendChild(layout)
   }
 
   async function showMetaUpgradesModal() {

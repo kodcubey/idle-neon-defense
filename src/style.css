@@ -182,6 +182,13 @@ input:focus {
 
 .ng-menu .panel-header {
   padding: 10px 14px;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--neon-cyan) 10%, transparent),
+      color-mix(in srgb, var(--neon-magenta) 10%, transparent)
+    );
+  border-bottom: 1px solid color-mix(in srgb, var(--stroke-strong) 55%, transparent);
 }
 
 .ng-menu .panel-body {
@@ -189,10 +196,82 @@ input:focus {
   line-height: 1.35;
 }
 
+/* Menu hero panel polish (CSS-only; keeps same DOM/UX) */
+.panel.ng-menu {
+  position: relative;
+  border-radius: 14px;
+  border-color: color-mix(in srgb, var(--stroke-strong) 70%, transparent);
+  box-shadow:
+    0 0 46px color-mix(in srgb, var(--neon-cyan) 12%, transparent),
+    0 0 34px color-mix(in srgb, var(--neon-magenta) 10%, transparent),
+    var(--shadow);
+  background:
+    radial-gradient(700px 260px at 20% 0%, color-mix(in srgb, var(--neon-cyan) 14%, transparent), transparent 62%),
+    radial-gradient(620px 260px at 80% 0%, color-mix(in srgb, var(--neon-magenta) 12%, transparent), transparent 62%),
+    var(--panel);
+}
+
+.panel.ng-menu::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, rgba(255, 255, 255, 0.06) 55%, transparent),
+      transparent 35%,
+      color-mix(in srgb, rgba(255, 255, 255, 0.02) 55%, transparent)
+    );
+  opacity: 0.55;
+}
+
+/* Menu layout: sticky left sidebar + scrollable right content (within .ui-center scroll) */
+.ng-menu-layout {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 18px 10px;
+}
+
+.ng-menu-sidebar {
+  position: sticky;
+  top: 18px;
+  flex: 0 0 auto;
+  width: min(440px, calc(100vw - 36px));
+}
+
+.ng-menu-content {
+  flex: 1;
+  min-width: 0;
+  width: min(620px, calc(100vw - 36px));
+}
+
+@media (max-width: 900px) {
+  .ng-menu-layout {
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 10px;
+  }
+  .ng-menu-sidebar {
+    position: static;
+    width: min(560px, calc(100vw - 24px));
+  }
+  .ng-menu-content {
+    width: min(560px, calc(100vw - 24px));
+  }
+}
+
 .ng-menu-title {
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 900;
   letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-shadow:
+    0 0 16px color-mix(in srgb, var(--neon-cyan) 22%, transparent),
+    0 0 18px color-mix(in srgb, var(--neon-magenta) 18%, transparent);
 }
 
 .ng-menu-actions {
@@ -203,6 +282,69 @@ input:focus {
 .ng-menu-actions .btn {
   width: 100%;
   text-align: left;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, rgba(14, 18, 38, 0.65) 75%, transparent),
+      rgba(14, 18, 38, 0.35)
+    );
+}
+
+.ng-menu-actions .btn::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 10px 0 0 10px;
+  background: color-mix(in srgb, var(--neon-cyan) 60%, transparent);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.ng-menu-actions .btn:hover::before {
+  opacity: 1;
+}
+
+.ng-btn-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  filter: drop-shadow(0 0 10px color-mix(in srgb, currentColor 18%, transparent));
+}
+
+.ng-btn-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.ng-btn-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.ng-icon-cyan {
+  color: var(--neon-cyan);
+}
+
+.ng-icon-magenta {
+  color: var(--neon-magenta);
+}
+
+.ng-icon-lime {
+  color: var(--neon-lime);
 }
 
 .btn {
