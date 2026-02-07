@@ -642,6 +642,14 @@ export function createUIStateMachine(args: UIArgs) {
       </svg>
     `
 
+    const iconInfo = `
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z" stroke="currentColor" stroke-width="2"/>
+        <path d="M12 10.5V17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M12 7.5h.01" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+      </svg>
+    `
+
     const requireLogin = (): boolean => {
       if (!firebaseSync) {
         alert('Login is unavailable.')
@@ -715,6 +723,12 @@ export function createUIStateMachine(args: UIArgs) {
       showSettingsModal()
     }
 
+    const how = menuBtn('How to Play', iconInfo, 'cyan')
+    how.onclick = () => {
+      if (game) game.setPaused(true)
+      showHowToPlayModal()
+    }
+
     const tower = menuBtn('Tower', iconTower, 'magenta')
     tower.onclick = () => {
       if (!requireLogin()) return
@@ -729,7 +743,7 @@ export function createUIStateMachine(args: UIArgs) {
       void showMetaUpgradesModal()
     }
 
-    row.append(newRun, metaUpg, modules, tower, stats, settings)
+    row.append(newRun, metaUpg, modules, tower, stats, settings, how)
 
     const card = el('div', 'panel')
     card.style.marginTop = '12px'
@@ -2614,6 +2628,119 @@ export function createUIStateMachine(args: UIArgs) {
 
   function showStatsModal() {
     const panel = buildStatsPanel({
+      backLabel: 'Close',
+      onBack: () => overlay.remove(),
+    })
+    panel.style.width = 'min(920px, calc(100vw - 20px))'
+
+    const overlay = mountModal(panel)
+    overlay.addEventListener('pointerdown', (e) => {
+      if (e.target === overlay) overlay.remove()
+    })
+  }
+
+  function buildHowToPlayPanel(args: { backLabel: string; onBack: () => void }) {
+    const panel = el('div', 'panel')
+    panel.style.pointerEvents = 'auto'
+
+    const header = el('div', 'panel-header')
+    header.appendChild(el('div')).textContent = 'How to Play'
+
+    const back = btn(args.backLabel, 'btn')
+    back.onclick = args.onBack
+    header.appendChild(back)
+
+    const body = el('div', 'panel-body')
+    body.style.lineHeight = '1.45'
+
+    body.innerHTML = `
+      <div class="muted">
+        <div style="font-weight:900; margin-bottom:6px">Genre / Summary</div>
+        <div>NEON GRID is a <b>wave-based idle / auto-shooter tower defense</b> game.</div>
+        <div>Key twist: <b>No RNG</b> — enemies, damage, rewards, and penalties are computed with <b>deterministic</b> formulas.</div>
+      </div>
+
+      <div style="height:10px"></div>
+
+      <div class="muted">
+        <div style="font-weight:900; margin-bottom:6px">Goal</div>
+        <div>Kill as many enemies as possible each wave and keep your <b>Base</b> alive.</div>
+        <div>If enemies reach the center and escape, your <b>Base HP</b> drops. When Base HP reaches zero, the run ends.</div>
+      </div>
+
+      <div style="height:10px"></div>
+
+      <div class="muted">
+        <div style="font-weight:900; margin-bottom:6px">Wave Rules</div>
+        <div>• Each wave duration is fixed: <span class="mono">${config.sim.waveDurationSec.toFixed(1)}s</span></div>
+        <div>• The tower fires automatically; targeting and shots are controlled by the simulation.</div>
+        <div>• When a wave ends, the game pauses; press <b>Continue</b> to start the next wave.</div>
+      </div>
+
+      <div style="height:10px"></div>
+
+      <div class="muted">
+        <div style="font-weight:900; margin-bottom:6px">Kill Ratio (KR) / Penalty System</div>
+        <div>The main performance metric is <b>Kill Ratio</b>. If you fall below the target, you get penalized.</div>
+        <div>• Rewards: reduced by the penalty multiplier (gold / meta income is affected).</div>
+        <div>• Escapes: can deal extra damage to your Base.</div>
+        <div class="mono" style="margin-top:6px">Note: This system does not change time; it changes reward/damage multipliers.</div>
+      </div>
+
+      <div style="height:10px"></div>
+
+      <div class="muted">
+        <div style="font-weight:900; margin-bottom:6px">Economy: Gold & Paladyum</div>
+        <div>• <b>Gold</b>: used for in-run upgrades (damage, fire rate, range, etc.).</div>
+        <div>• <b>Paladyum</b>: permanent meta currency (Meta Upgrades, modules, slot unlocks).</div>
+        <div>• Paladyum is not granted as a single end-of-wave bundle; it drops from some enemy kills.</div>
+        <div>• When a drop happens, you will see <b>+1</b> above the dead enemy.</div>
+      </div>
+
+      <div style="height:10px"></div>
+
+      <div class="muted">
+        <div style="font-weight:900; margin-bottom:6px">Upgrades</div>
+        <div>In the Tower screen, you buy upgrades that shape your wave performance:</div>
+        <div>• <b>Damage / Fire Rate</b>: increases DPS.</div>
+        <div>• <b>Range</b>: lets you engage earlier.</div>
+        <div>• <b>Base HP / Repair / Fortify</b>: improves survivability.</div>
+        <div>• <b>Crit / MultiShot</b>: more explosive damage profile (deterministic crit).</div>
+      </div>
+
+      <div style="height:10px"></div>
+
+      <div class="muted">
+        <div style="font-weight:900; margin-bottom:6px">Modules</div>
+        <div>Modules are the core of build-making. Offense/Defense/Utility modules change how your tower behaves.</div>
+        <div>• Modules are not random drops; you unlock them with Paladyum and upgrade their levels.</div>
+        <div>• Slot count is limited; you unlock more slots as you progress.</div>
+      </div>
+
+      <div style="height:10px"></div>
+
+      <div class="muted">
+        <div style="font-weight:900; margin-bottom:6px">What Does Deterministic (No RNG) Mean?</div>
+        <div>With the same wave, the same upgrades, the same modules, and the same settings, the game produces the same outcomes.</div>
+        <div>This makes balance and build experiments easier to read: decisions matter more than luck.</div>
+      </div>
+
+      <div style="height:10px"></div>
+
+      <div class="muted">
+        <div style="font-weight:900; margin-bottom:6px">Tips</div>
+        <div>• If you miss the KR target: stabilize DPS first (damage/fire rate), then add survivability.</div>
+        <div>• If too many enemies escape: range + slow + baseHP/repair combos are strong.</div>
+        <div>• For performance: Settings → <span class="mono">Reduce Effects</span>.</div>
+      </div>
+    `
+
+    panel.append(header, body)
+    return panel
+  }
+
+  function showHowToPlayModal() {
+    const panel = buildHowToPlayPanel({
       backLabel: 'Close',
       onBack: () => overlay.remove(),
     })
