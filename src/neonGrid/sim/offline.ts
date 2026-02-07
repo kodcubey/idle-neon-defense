@@ -4,7 +4,6 @@ export function applyOfflineProgress(args: {
   state: GameState
   nowUTC: number
   config: GameConfig
-  rewarded?: boolean
 }): OfflineProgressResult {
   const { nowUTC } = args
   const stateBefore = { ...args.state }

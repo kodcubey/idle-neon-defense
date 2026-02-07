@@ -205,9 +205,6 @@ export function createGame(args: {
       s.modulesEquipped = { ...prev.modulesEquipped }
       s.moduleSlotsUnlocked = prev.moduleSlotsUnlocked
 
-      // Rewarded ad cooldown persists across runs.
-      s.rewardedAdNextEligibleUTC = prev.rewardedAdNextEligibleUTC
-
        // Permanent upgrades define starting tower upgrade levels.
        s.towerMetaUpgrades = { ...prev.towerMetaUpgrades }
        s.towerUpgrades = { ...prev.towerMetaUpgrades } as any

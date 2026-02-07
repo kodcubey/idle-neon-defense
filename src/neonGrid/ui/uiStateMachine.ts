@@ -166,9 +166,6 @@ export function createUIStateMachine(args: UIArgs) {
   // Prevent accidental click-to-unequip triggered right after a successful drop.
   let lastSlotDropAtMs = 0
 
-  let menuRewardTick: number | null = null
-  let rewardedAdInProgress = false
-
   let screen: UIScreen = args.initialState
 
   const top = el('div', 'hud-top')
@@ -362,11 +359,6 @@ export function createUIStateMachine(args: UIArgs) {
   function render() {
     cleanupStaleModalOverlays()
 
-    if (screen !== 'menu' && menuRewardTick != null) {
-      window.clearInterval(menuRewardTick)
-      menuRewardTick = null
-    }
-
     // Hard guarantee: home-related screens never run gameplay.
     if (game && (screen === 'menu' || screen === 'login' || screen === 'boot' || screen === 'offline')) {
       game.setPaused(true)
@@ -490,69 +482,16 @@ export function createUIStateMachine(args: UIArgs) {
     const desc = el('div', 'muted')
     desc.textContent = 'No RNG: All outcomes are deterministic. Wave duration is fixed.'
 
-    const balancesRow = el('div')
-    balancesRow.style.marginTop = '10px'
-    balancesRow.style.display = 'flex'
-    balancesRow.style.alignItems = 'center'
-    balancesRow.style.gap = '10px'
+    const balances = (() => {
+      const st = firebaseSync?.getStatus()
+      if (!firebaseSync || !st?.configured || !st.signedIn) return null
 
-    const stForAds = firebaseSync?.getStatus()
-    const showRewardedAds = !!firebaseSync && !!stForAds?.configured && !!stForAds?.signedIn
-
-    const balances = el('div', 'muted')
-    const pal = lastState?.points ?? 0
-    balances.innerHTML = `Paladyum: <span class="mono">${formatPaladyumInt(pal)}</span>`
-
-    const adBtn = showRewardedAds ? btn('', 'btn') : null
-    if (adBtn) adBtn.style.flex = '0 0 auto'
-
-    const COOLDOWN_MS = 2 * 60 * 60 * 1000
-    const REWARD_PAL = 5
-
-    const fmtHHMMSS = (ms: number) => {
-      const s = Math.max(0, Math.floor(ms / 1000))
-      const h = Math.floor(s / 3600)
-      const m = Math.floor((s % 3600) / 60)
-      const ss = s % 60
-      const pad = (n: number) => String(n).padStart(2, '0')
-      return `${pad(h)}:${pad(m)}:${pad(ss)}`
-    }
-
-    const updateRewardBtn = () => {
-      if (!adBtn) return
-      const now = Date.now()
-      const nextAt = Math.max(0, Math.floor(lastState?.rewardedAdNextEligibleUTC ?? 0))
-      const left = Math.max(0, nextAt - now)
-      const eligible = left <= 0
-
-      adBtn.disabled = !eligible || rewardedAdInProgress
-      adBtn.textContent = eligible ? `Watch ad (+${REWARD_PAL})` : `Ad (+${REWARD_PAL}) • ${fmtHHMMSS(left)}`
-    }
-
-    if (adBtn)
-      adBtn.onclick = () => {
-      const now = Date.now()
-      const nextAt = Math.max(0, Math.floor(lastState?.rewardedAdNextEligibleUTC ?? 0))
-      if (rewardedAdInProgress) return
-      if (now < nextAt) {
-        flashFail(adBtn)
-        return
-      }
-      void watchRewardedAdForPaladyum({ rewardPaladyum: REWARD_PAL, cooldownMs: COOLDOWN_MS })
-      }
-
-    if (adBtn) {
-      balancesRow.append(balances, adBtn)
-      if (menuRewardTick != null) window.clearInterval(menuRewardTick)
-      menuRewardTick = window.setInterval(updateRewardBtn, 1000)
-      updateRewardBtn()
-    } else {
-      balancesRow.style.display = 'none'
-      if (menuRewardTick != null) {
-        window.clearInterval(menuRewardTick)
-        menuRewardTick = null
-      }
-    }
+      const balances = el('div', 'muted')
+      balances.style.marginTop = '10px'
+      const pal = lastState?.points ?? 0
+      balances.innerHTML = `Paladyum: <span class="mono">${formatPaladyumInt(pal)}</span>`
+      return balances
+    })()
 
     const row = el('div', 'stack ng-menu-actions')
     row.style.marginTop = '12px'
@@ -775,283 +714,13 @@ export function createUIStateMachine(args: UIArgs) {
       body.appendChild(authLine)
     }
 
-    body.append(desc, balancesRow, row, card)
+    body.appendChild(desc)
+    if (balances) body.appendChild(balances)
+    body.append(row, card)
     if (authPanel) body.appendChild(authPanel)
     if (signedInPanel) body.appendChild(signedInPanel)
     panel.append(header, body)
     center.appendChild(panel)
-  }
-
-  async function watchRewardedAdForPaladyum(args: { rewardPaladyum: number; cooldownMs: number }) {
-    if (rewardedAdInProgress) return
-    rewardedAdInProgress = true
-    try {
-      if (!game) return
-      game.setPaused(true)
-
-      const ok = await playRewardedVideoAd({ minSimulatedSec: 45 })
-      if (!ok) {
-        render()
-        return
-      }
-
-      const now = Date.now()
-      const snap = game.getSnapshot()
-
-      const next: GameState = {
-        ...snap,
-        points: Math.max(0, Math.floor((snap.points ?? 0) + Math.max(0, Math.floor(args.rewardPaladyum)))),
-        rewardedAdNextEligibleUTC: now + Math.max(0, Math.floor(args.cooldownMs)),
-      }
-
-      game.setSnapshot(next, 'soft')
-      lastState = game.getSnapshot()
-
-      saveSnapshot(config, lastState)
-
-      const st = firebaseSync?.getStatus()
-      const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
-      if (canCloud) {
-        try {
-          await firebaseSync!.uploadMetaFromState(lastState)
-        } catch {
-          // Best-effort: local save already updated.
-        }
-      }
-
-      render()
-    } finally {
-      rewardedAdInProgress = false
-    }
-  }
-
-  async function playRewardedVideoAd(args: { minSimulatedSec: number }): Promise<boolean> {
-    const tag = String((import.meta.env as any).VITE_IMA_AD_TAG_URL ?? '').trim()
-    const hasTag = tag.length > 0
-
-    if (hasTag) {
-      const loaded = await ensureImaSdkLoaded()
-      if (loaded) {
-        try {
-          return await playImaAd(tag)
-        } catch {
-          // Fall through to simulated ad.
-        }
-      }
-    }
-
-    return await playSimulatedAd({ durationSec: Math.max(10, Math.floor(args.minSimulatedSec)) })
-  }
-
-  async function ensureImaSdkLoaded(): Promise<boolean> {
-    if ((window as any).google?.ima) return true
-    return await new Promise<boolean>((resolve) => {
-      const existing = document.querySelector('script[data-ng-ima="1"]') as HTMLScriptElement | null
-      if (existing) {
-        existing.addEventListener('load', () => resolve(true), { once: true })
-        existing.addEventListener('error', () => resolve(false), { once: true })
-        return
-      }
-
-      const s = document.createElement('script')
-      s.src = 'https://imasdk.googleapis.com/js/sdkloader/ima3.js'
-      s.async = true
-      s.defer = true
-      s.dataset.ngIma = '1'
-      s.onload = () => resolve(true)
-      s.onerror = () => resolve(false)
-      document.head.appendChild(s)
-    })
-  }
-
-  async function playSimulatedAd(args: { durationSec: number }): Promise<boolean> {
-    return await new Promise<boolean>((finalResolve) => {
-      const modal = el('div', 'panel')
-      modal.style.width = 'min(760px, calc(100vw - 20px))'
-      modal.style.pointerEvents = 'auto'
-
-      const h = el('div', 'panel-header')
-      h.textContent = 'Rewarded Video Ad'
-
-      const b = el('div', 'panel-body')
-
-      const note = el('div', 'muted')
-      note.textContent = "You can't return to the game before the ad ends. Leaving cancels the reward."
-
-      const status = el('div', 'mono muted')
-      status.style.marginTop = '10px'
-
-      const barOuter = el('div')
-      barOuter.style.height = '6px'
-      barOuter.style.borderRadius = '999px'
-      barOuter.style.background = 'var(--stroke)'
-      barOuter.style.overflow = 'hidden'
-      barOuter.style.marginTop = '10px'
-
-      const barInner = el('div')
-      barInner.style.height = '100%'
-      barInner.style.width = '0%'
-      barInner.style.background = 'var(--neon-lime)'
-      barOuter.appendChild(barInner)
-
-      const actions = el('div', 'stack')
-      actions.style.marginTop = '12px'
-
-      const giveUp = btn('Leave (No reward)', 'btn btn-danger')
-      actions.append(giveUp)
-
-      b.append(note, status, barOuter, actions)
-      modal.append(h, b)
-
-      const overlay = mountModal(modal)
-
-      let settled = false
-      let tick: number | null = null
-      const startedAt = performance.now()
-      const D = Math.max(5, Math.floor(args.durationSec))
-
-      const settle = (ok: boolean) => {
-        if (settled) return
-        settled = true
-        document.removeEventListener('visibilitychange', onVis)
-        if (tick != null) window.clearInterval(tick)
-        overlay.remove()
-        finalResolve(ok)
-      }
-
-      const onVis = () => {
-        if (settled) return
-        if (document.visibilityState === 'hidden') {
-          alert('Ad closed early / sent to background. Reward cancelled.')
-          settle(false)
-        }
-      }
-      document.addEventListener('visibilitychange', onVis)
-
-      giveUp.onclick = () => {
-        alert('Reward cancelled.')
-        settle(false)
-      }
-
-      tick = window.setInterval(() => {
-        if (settled) return
-        const elapsed = (performance.now() - startedAt) / 1000
-        const left = Math.max(0, D - elapsed)
-        const progress = Math.max(0, Math.min(1, elapsed / D))
-        status.textContent = `Video: ${left.toFixed(0)}s`
-        barInner.style.width = `${(progress * 100).toFixed(2)}%`
-        if (left <= 0) settle(true)
-      }, 100)
-    })
-  }
-
-  async function playImaAd(adTagUrl: string): Promise<boolean> {
-    const googleAny = (window as any).google
-    if (!googleAny?.ima) throw new Error('IMA not available')
-
-    return await new Promise<boolean>((finalResolve) => {
-      const modal = el('div', 'panel')
-      modal.style.width = 'min(920px, calc(100vw - 20px))'
-      modal.style.pointerEvents = 'auto'
-
-      const h = el('div', 'panel-header')
-      const title = el('div')
-      title.textContent = 'Rewarded Video Ad'
-      const leave = btn('Leave (No reward)', 'btn btn-danger')
-      h.append(title, leave)
-
-      const b = el('div', 'panel-body')
-      const note = el('div', 'muted')
-      note.textContent = "You can't return to the game before the ad ends. Leaving cancels the reward."
-      note.style.marginBottom = '10px'
-
-      const adContainer = el('div')
-      adContainer.style.width = '100%'
-      adContainer.style.aspectRatio = '16 / 9'
-      adContainer.style.background = 'black'
-      adContainer.style.position = 'relative'
-
-      const video = document.createElement('video')
-      video.style.width = '100%'
-      video.style.height = '100%'
-      video.playsInline = true
-      video.controls = false
-      video.muted = true
-      adContainer.appendChild(video)
-
-      b.append(note, adContainer)
-      modal.append(h, b)
-
-      const overlay = mountModal(modal)
-
-      let settled = false
-      let adsManager: any = null
-
-      const settle = (ok: boolean) => {
-        if (settled) return
-        settled = true
-        document.removeEventListener('visibilitychange', onVis)
-        try {
-          adsManager?.destroy?.()
-        } catch {}
-        overlay.remove()
-        finalResolve(ok)
-      }
-
-      const onVis = () => {
-        if (settled) return
-        if (document.visibilityState === 'hidden') {
-          alert('Ad closed early / sent to background. Reward cancelled.')
-          settle(false)
-        }
-      }
-      document.addEventListener('visibilitychange', onVis)
-
-      leave.onclick = () => settle(false)
-
-      try {
-        const displayContainer = new googleAny.ima.AdDisplayContainer(adContainer, video)
-        displayContainer.initialize()
-
-        const adsLoader = new googleAny.ima.AdsLoader(displayContainer)
-        adsLoader.addEventListener(googleAny.ima.AdErrorEvent.Type.AD_ERROR, () => settle(false), false)
-
-        adsLoader.addEventListener(
-          googleAny.ima.AdsManagerLoadedEvent.Type.ADS_MANAGER_LOADED,
-          (e: any) => {
-            if (settled) return
-            adsManager = e.getAdsManager(video)
-
-            leave.onclick = () => settle(false)
-
-            adsManager.addEventListener(googleAny.ima.AdEvent.Type.COMPLETE, () => settle(true))
-            adsManager.addEventListener(googleAny.ima.AdEvent.Type.SKIPPED, () => settle(false))
-            adsManager.addEventListener(googleAny.ima.AdEvent.Type.ALL_ADS_COMPLETED, () => settle(true))
-
-            try {
-              const w = Math.max(1, adContainer.clientWidth || window.innerWidth)
-              const h = Math.max(1, adContainer.clientHeight || window.innerHeight)
-              adsManager.init(w, h, googleAny.ima.ViewMode.NORMAL)
-              adsManager.start()
-            } catch {
-              settle(false)
-            }
-          },
-          false,
-        )
-
-        const adsRequest = new googleAny.ima.AdsRequest()
-        adsRequest.adTagUrl = adTagUrl
-        adsRequest.linearAdSlotWidth = adContainer.clientWidth || window.innerWidth
-        adsRequest.linearAdSlotHeight = adContainer.clientHeight || window.innerHeight
-        adsRequest.nonLinearAdSlotWidth = adContainer.clientWidth || window.innerWidth
-        adsRequest.nonLinearAdSlotHeight = adContainer.clientHeight || window.innerHeight
-
-        adsLoader.requestAds(adsRequest)
-      } catch {
-        settle(false)
-      }
-    })
   }
 
   async function showMetaUpgradesModal() {
@@ -2736,13 +2405,11 @@ export function createUIStateMachine(args: UIArgs) {
     const overlay = mountModal(modal)
 
     const collect = btn('Collect', 'btn btn-primary')
-    const ad = btn('Watch Ad for 2x (deterministic multiplier)', 'btn')
 
     collect.onclick = async () => {
       const g = game
       if (!g) return
       collect.disabled = true
-      ad.disabled = true
       try {
         await withLoading(async () => {
           g.setSnapshot(result.stateAfter)
@@ -2764,16 +2431,12 @@ export function createUIStateMachine(args: UIArgs) {
         alert(String((e as any)?.message ?? e))
       } finally {
         collect.disabled = false
-        ad.disabled = false
       }
-    }
-    ad.onclick = () => {
-      alert('No ads in this prototype; the multiplier is for demo purposes. We can add a real ad integration later.')
     }
 
     const row = el('div', 'stack')
     row.style.marginTop = '10px'
-    row.append(collect, ad)
+    row.append(collect)
     b.appendChild(row)
 
     modal.append(h, b)

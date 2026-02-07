@@ -139,7 +139,7 @@ Tema: Neon cyberpunk (near-black + grid + neon glow). Palet config’te sabittir
   - “estimated” etiketi
 - Events
   - Collect → stateAfter uygulanır
-  - 2x (rewarded) → sadece çarpan; deterministik
+
 
 ### H) Settings
 

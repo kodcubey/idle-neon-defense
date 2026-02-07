@@ -91,7 +91,6 @@ export const defaultConfig: GameConfig = {
     deficitBoost: 1.2,
 
     offlineFactor: 0.6,
-    rewardedOfflineFactor: 1.2,
     offlineKillK0: 0.22,
     offlineKillK1: 0.75,
   },

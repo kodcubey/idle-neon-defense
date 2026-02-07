@@ -81,7 +81,6 @@ export function createNewState(config: GameConfig, nowUTC: number): GameState {
     modulesEquipped,
     moduleLevels,
     moduleSlotsUnlocked: 1,
-    rewardedAdNextEligibleUTC: 0,
     prestigePoints: 0,
     settings: defaultSettings(),
     stats: defaultStats(),
@@ -199,11 +198,6 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
   }
   ;(merged as any).moduleSlotsUnlocked = Math.max(1, Math.min(config.modules.slotCount, Math.floor((merged as any).moduleSlotsUnlocked)))
 
-  if (typeof (merged as any).rewardedAdNextEligibleUTC !== 'number' || !Number.isFinite((merged as any).rewardedAdNextEligibleUTC)) {
-    ;(merged as any).rewardedAdNextEligibleUTC = 0
-  }
-  ;(merged as any).rewardedAdNextEligibleUTC = Math.max(0, Math.floor((merged as any).rewardedAdNextEligibleUTC))
-
   // Offline progression is disabled; always refresh the save timestamp on load.
   merged.lastSaveTimestampUTC = nowUTC
 
@@ -213,16 +207,31 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
 }
 
 export function saveSnapshot(config: GameConfig, state: GameState) {
+  // Explicitly persist only the known schema fields.
+  // This drops any legacy/unknown properties that may exist in older saves.
   const snapshot: GameState = {
-    ...state,
     version: config.version,
     lastSaveTimestampUTC: Date.now(),
-  }
 
-  // Paladyum / prestige are integer-only.
-  snapshot.points = typeof snapshot.points === 'number' && Number.isFinite(snapshot.points) ? Math.max(0, Math.floor(snapshot.points)) : 0
-  snapshot.prestigePoints =
-    typeof snapshot.prestigePoints === 'number' && Number.isFinite(snapshot.prestigePoints) ? Math.max(0, Math.floor(snapshot.prestigePoints)) : 0
+    wave: state.wave,
+    gold: state.gold,
+    points: typeof state.points === 'number' && Number.isFinite(state.points) ? Math.max(0, Math.floor(state.points)) : 0,
+    paladyumCarry: 0,
+
+    baseHP: state.baseHP,
+
+    towerMetaUpgrades: { ...(state.towerMetaUpgrades as any) },
+    towerUpgrades: { ...(state.towerUpgrades as any) },
+
+    modulesUnlocked: { ...state.modulesUnlocked },
+    modulesEquipped: { ...state.modulesEquipped },
+    moduleLevels: { ...state.moduleLevels },
+    moduleSlotsUnlocked: state.moduleSlotsUnlocked,
+
+    prestigePoints: typeof state.prestigePoints === 'number' && Number.isFinite(state.prestigePoints) ? Math.max(0, Math.floor(state.prestigePoints)) : 0,
+    settings: { ...state.settings },
+    stats: { ...state.stats },
+  }
 
   localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
 }

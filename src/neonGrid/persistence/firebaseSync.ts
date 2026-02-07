@@ -15,7 +15,6 @@ export type MetaSaveV1 = {
   v: 1
   points: number
   prestigePoints: number
-  rewardedAdNextEligibleUTC?: number
   towerMetaUpgrades?: GameState['towerMetaUpgrades']
   settings: GameState['settings']
   stats: GameState['stats']
@@ -30,7 +29,6 @@ export function extractMetaFromState(state: GameState): MetaSaveV1 {
     v: 1,
     points: typeof state.points === 'number' && Number.isFinite(state.points) ? Math.max(0, Math.floor(state.points)) : 0,
     prestigePoints: typeof state.prestigePoints === 'number' && Number.isFinite(state.prestigePoints) ? Math.max(0, Math.floor(state.prestigePoints)) : 0,
-    rewardedAdNextEligibleUTC: state.rewardedAdNextEligibleUTC,
     towerMetaUpgrades: state.towerMetaUpgrades ? { ...state.towerMetaUpgrades } : undefined,
     settings: { ...state.settings },
     stats: { ...state.stats },
@@ -49,8 +47,6 @@ export function applyMetaToState(current: GameState, meta: MetaSaveV1): GameStat
 
   const metaPoints = typeof meta.points === 'number' && Number.isFinite(meta.points) ? Math.max(0, meta.points) : null
   const metaPrestige = typeof meta.prestigePoints === 'number' && Number.isFinite(meta.prestigePoints) ? Math.max(0, meta.prestigePoints) : null
-  const metaRewardNext =
-    typeof meta.rewardedAdNextEligibleUTC === 'number' && Number.isFinite(meta.rewardedAdNextEligibleUTC) ? Math.max(0, meta.rewardedAdNextEligibleUTC) : null
 
   const nextMetaUpgrades = (() => {
     const base = current.towerMetaUpgrades
@@ -71,7 +67,6 @@ export function applyMetaToState(current: GameState, meta: MetaSaveV1): GameStat
     // Points are spendable; applyCloudMetaToState() decides whether to trust cloud.
     points: metaPoints == null ? current.points : Math.max(0, Math.floor(metaPoints)),
     prestigePoints: metaPrestige == null ? current.prestigePoints : Math.max(current.prestigePoints, metaPrestige),
-    rewardedAdNextEligibleUTC: metaRewardNext == null ? current.rewardedAdNextEligibleUTC : Math.max(current.rewardedAdNextEligibleUTC, metaRewardNext),
     towerMetaUpgrades: nextMetaUpgrades,
     settings: { ...current.settings, ...meta.settings, quality: 'high' },
     stats: { ...current.stats, ...meta.stats },
@@ -423,25 +418,14 @@ export function createFirebaseSync(): FirebaseSync {
       await runTransaction(db(), async (tx) => {
         const ref = saveDocRef(user!.uid)
         const snap = await tx.get(ref)
-
-        let existingRewardNext: number | null = null
         let existingUpdatedAt: number | null = null
         if (snap.exists()) {
           const data = snap.data() as Partial<SaveDocV1>
-          const rn = (data as any)?.meta?.rewardedAdNextEligibleUTC
-          if (typeof rn === 'number' && Number.isFinite(rn)) existingRewardNext = Math.max(0, rn)
-
           const u = (data as any)?.clientUpdatedAtUTC
           if (typeof u === 'number' && Number.isFinite(u)) existingUpdatedAt = u
         }
 
         if (existingUpdatedAt != null && existingUpdatedAt > payload.clientUpdatedAtUTC) return
-
-        if (existingRewardNext != null) {
-          const cur = payload.meta.rewardedAdNextEligibleUTC
-          const next = typeof cur === 'number' && Number.isFinite(cur) ? Math.max(0, cur) : 0
-          payload.meta.rewardedAdNextEligibleUTC = Math.max(next, existingRewardNext)
-        }
 
         tx.set(ref, payload, { merge: true })
       })
