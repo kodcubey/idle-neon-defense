@@ -582,6 +582,149 @@ input:focus {
   pointer-events: none;
 }
 
+/* Modules modal layout */
+.ng-modules-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.ng-modules-left,
+.ng-modules-right {
+  min-width: 0;
+}
+
+.ng-modules-balance {
+  margin-bottom: 8px;
+}
+
+.ng-modules-slots-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.ng-modules-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.ng-modules-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ng-modules-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.ng-mod-effect {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.ng-mod-actions {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ng-mod-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ng-mod-upgrade-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ng-modules-pager {
+  margin-top: 0;
+}
+
+/* Meta Upgrades modal */
+.ng-meta-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.ng-meta-balance {
+  margin: 0;
+}
+
+.ng-meta-tabs {
+  margin-bottom: 0 !important;
+}
+
+.ng-meta-row {
+  margin-bottom: 10px;
+}
+
+.ng-meta-row-title {
+  font-weight: 900;
+  letter-spacing: 0.01em;
+}
+
+.ng-meta-row-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ng-meta-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 180px;
+}
+
+.ng-meta-row-cost {
+  font-weight: 900;
+}
+
+.ng-meta-controls {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 520px) {
+  .ng-meta-row-body {
+    align-items: stretch;
+  }
+  .ng-meta-row-info {
+    min-width: 0;
+  }
+}
+
+
 @media (max-width: 600px) {
   .hud-topbar {
     gap: 4px;

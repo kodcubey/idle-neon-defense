@@ -920,7 +920,7 @@ export function createUIStateMachine(args: UIArgs) {
     // On every open, re-fetch Paladyum/meta from the DB.
     await refreshMetaFromCloud({ showSpinner: true })
 
-    const modal = el('div', 'panel')
+    const modal = el('div', 'panel ng-meta-modal')
     modal.style.width = 'min(760px, calc(100vw - 20px))'
     modal.style.pointerEvents = 'auto'
 
@@ -943,19 +943,19 @@ export function createUIStateMachine(args: UIArgs) {
     }
     h.append(title, close)
 
-    const b = el('div', 'panel-body')
+    const b = el('div', 'panel-body ng-meta-body')
 
-    const bal = el('div', 'muted')
-    bal.style.marginBottom = '10px'
+    const bal = el('div', 'muted ng-meta-balance')
     bal.innerHTML = `Paladyum: <span class="mono">${formatPaladyumInt(lastState.points)}</span>`
 
-    b.append(
-      bal,
-      renderUpgradesTabs(() => {
-        overlay.remove()
-        void showMetaUpgradesModal()
-      }),
-    )
+    const top = el('div', 'ng-meta-top')
+    const tabs = renderUpgradesTabs(() => {
+      overlay.remove()
+      void showMetaUpgradesModal()
+    })
+    tabs.classList.add('ng-meta-tabs')
+    top.append(bal, tabs)
+    b.append(top)
 
     const levelOf = (key: TowerUpgradeKey) => {
       const m = (lastState as any).towerMetaUpgrades
@@ -992,17 +992,23 @@ export function createUIStateMachine(args: UIArgs) {
       const atMax = level >= maxL
       const nextCost = atMax ? 'MAX' : formatNumber(metaUpgradeCostPoints(key, level, config), lastState?.settings.numberFormat ?? 'suffix')
 
-      const box = el('div')
-      box.style.display = 'grid'
-      box.style.gridTemplateColumns = '1fr auto'
-      box.style.gap = '10px'
-      box.style.alignItems = 'center'
-      box.style.marginBottom = '10px'
+      const card = el('div', 'panel ng-meta-row')
+      const ch = el('div', 'panel-header ng-meta-row-head')
+      const leftHead = el('div', 'ng-meta-row-title')
+      leftHead.textContent = label
+      const rightHead = el('div', 'muted mono ng-meta-row-level')
+      rightHead.textContent = `Lv ${level}${Number.isFinite(maxL) ? ` / ${maxL}` : ''}`
+      ch.append(leftHead, rightHead)
 
-      const left = el('div')
-      left.innerHTML = `<div style="font-weight:800">${label}</div><div class="muted mono">Lv ${level}${Number.isFinite(maxL) ? ` / ${maxL}` : ''} • Next:</div><div class="mono" style="font-weight:800">${nextCost}</div>`
+      const cb = el('div', 'panel-body ng-meta-row-body')
+      const info = el('div', 'ng-meta-row-info')
+      const costLabel = el('div', 'muted mono')
+      costLabel.textContent = 'Next cost'
+      const costVal = el('div', 'mono ng-meta-row-cost')
+      costVal.textContent = String(nextCost)
+      info.append(costLabel, costVal)
 
-      const controls = el('div', 'stack')
+      const controls = el('div', 'ng-meta-controls')
       const b1 = btn('+1', 'btn')
       const b10 = btn('+10', 'btn')
       const bM = btn('+Max', 'btn')
@@ -1068,8 +1074,9 @@ export function createUIStateMachine(args: UIArgs) {
       bM.onclick = () => void doBuy('max', bM)
 
       controls.append(b1, b10, bM)
-      box.append(left, controls)
-      return box
+      cb.append(info, controls)
+      card.append(ch, cb)
+      return card
     }
 
     if (upgradesTab === 'attack') {
@@ -1749,9 +1756,25 @@ export function createUIStateMachine(args: UIArgs) {
 
     const body = el('div', 'panel-body')
 
-    const bal = el('div', 'muted')
-    bal.style.marginBottom = '8px'
+    const layout = el('div', 'ng-modules-layout')
+
+    const bal = el('div', 'muted ng-modules-balance')
     bal.innerHTML = `Paladyum: <span class="mono">${formatPaladyumInt(lastState.points)}</span>`
+
+    const renderEffectList = (text: string): HTMLElement => {
+      const ul = document.createElement('ul')
+      ul.className = 'ng-mod-effect'
+      const lines = String(text || '')
+        .split(' • ')
+        .map((s) => s.trim())
+        .filter(Boolean)
+      for (const line of lines) {
+        const li = document.createElement('li')
+        li.textContent = line
+        ul.appendChild(li)
+      }
+      return ul
+    }
 
     // Slots / Equip
     const slotsPanel = el('div', 'panel')
@@ -1836,10 +1859,7 @@ export function createUIStateMachine(args: UIArgs) {
       return ok
     }
 
-    const slotsGrid = el('div')
-    slotsGrid.style.display = 'grid'
-    slotsGrid.style.gridTemplateColumns = 'repeat(auto-fit, minmax(150px, 1fr))'
-    slotsGrid.style.gap = '8px'
+    const slotsGrid = el('div', 'ng-modules-slots-grid')
 
     const getModuleLabel = (id: string) => {
       const def = config.modules.defs.find((d) => d.id === id)
@@ -1884,9 +1904,8 @@ export function createUIStateMachine(args: UIArgs) {
 
           const effect = el('div', 'muted')
           effect.style.fontSize = '12px'
-          effect.textContent = def ? moduleEffectText(def, Math.max(1, Math.floor(lastState!.moduleLevels[equippedId] ?? 1)), config) : ''
-
-          bb.append(title, effect)
+          const effectText = def ? moduleEffectText(def, Math.max(1, Math.floor(lastState!.moduleLevels[equippedId] ?? 1)), config) : ''
+          bb.append(title, renderEffectList(effectText))
 
           const remove = btn('Remove', 'btn btn-danger')
           remove.onclick = (e) => {
@@ -1961,7 +1980,8 @@ export function createUIStateMachine(args: UIArgs) {
     slotsPanel.append(sh, sb)
 
     // Filter row
-    const filterRow = el('div', 'stack')
+    const toolbar = el('div', 'ng-modules-toolbar')
+    const filters = el('div', 'ng-modules-filters')
     const mkFilter = (label: string, f: typeof modulesFilter) => {
       const b = btn(label, 'btn')
       if (modulesFilter === f) b.classList.add('is-selected')
@@ -1972,7 +1992,7 @@ export function createUIStateMachine(args: UIArgs) {
       }
       return b
     }
-    filterRow.append(mkFilter('All', 'ALL'), mkFilter('Offense', 'OFFENSE'), mkFilter('Defense', 'DEFENSE'), mkFilter('Utility', 'UTILITY'))
+    filters.append(mkFilter('All', 'ALL'), mkFilter('Offense', 'OFFENSE'), mkFilter('Defense', 'DEFENSE'), mkFilter('Utility', 'UTILITY'))
 
     // Filter modules
     const filtered = config.modules.defs.filter((d) => modulesFilter === 'ALL' || d.category === modulesFilter)
@@ -1982,14 +2002,10 @@ export function createUIStateMachine(args: UIArgs) {
 
     const unlockedCount = Object.values(lastState.modulesUnlocked).filter(Boolean).length
 
-    const list = el('div')
-    list.style.display = 'grid'
-    list.style.gridTemplateColumns = 'repeat(auto-fit, minmax(240px, 1fr))'
-    list.style.gap = '8px'
-    list.style.marginTop = '8px'
+    const list = el('div', 'ng-modules-grid')
 
     for (const def of pageItems) {
-      const card = el('div', 'panel')
+      const card = el('div', 'panel ng-mod-card')
       card.draggable = false
       card.ondragstart = null
       const ch = el('div', 'panel-header')
@@ -2002,14 +2018,12 @@ export function createUIStateMachine(args: UIArgs) {
       cat.textContent = def.category
       ch.append(name, cat)
 
-      const cb = el('div', 'panel-body')
+      const cb = el('div', 'panel-body ng-mod-card-body')
 
-      const effect = el('div', 'muted')
-      effect.style.fontSize = '12px'
-      effect.textContent = moduleEffectText(def, Math.max(1, Math.floor(lastState!.moduleLevels[def.id] ?? 1)), config)
+      const effectText = moduleEffectText(def, Math.max(1, Math.floor(lastState!.moduleLevels[def.id] ?? 1)), config)
+      const effectList = renderEffectList(effectText)
 
-      const actions = el('div', 'stack')
-      actions.style.marginTop = '6px'
+      const actions = el('div', 'ng-mod-actions')
 
       const isUnlocked = !!lastState.modulesUnlocked[def.id]
       if (!isUnlocked) {
@@ -2052,7 +2066,9 @@ export function createUIStateMachine(args: UIArgs) {
             args.rerender()
           })()
         }
-        actions.appendChild(b)
+        const row = el('div', 'ng-mod-actions-row')
+        row.appendChild(b)
+        actions.appendChild(row)
       } else {
         const eqSlot = equippedById.get(def.id) ?? null
         const add = btn(eqSlot ? `Equipped (S${eqSlot})` : 'Add', 'btn')
@@ -2188,16 +2204,22 @@ export function createUIStateMachine(args: UIArgs) {
           })()
         }
 
-        actions.append(add, kv('Level', String(level), true), b1, b10, bM)
+        const rowTop = el('div', 'ng-mod-actions-row')
+        rowTop.append(add, kv('Level', String(level), true))
+
+        const rowUp = el('div', 'ng-mod-upgrade-row')
+        rowUp.append(b1, b10, bM)
+
+        actions.append(rowTop, rowUp)
       }
 
-      cb.append(effect, actions)
+      cb.append(effectList, actions)
       card.append(ch, cb)
       list.appendChild(card)
     }
 
     // Pagination controls
-    const pager = el('div', 'hud-pager')
+    const pager = el('div', 'hud-pager ng-modules-pager')
     const prevBtn = btn('◀ Prev', 'btn')
     prevBtn.onclick = () => { modulesPage = Math.max(0, modulesPage - 1); args.rerender() }
     if (modulesPage === 0) prevBtn.disabled = true
@@ -2212,7 +2234,10 @@ export function createUIStateMachine(args: UIArgs) {
 
     pager.append(prevBtn, pageLabel, nextBtn)
 
-    body.append(bal, slotsPanel, filterRow, list, pager)
+    toolbar.append(filters, pager)
+
+    layout.append(bal, slotsPanel, toolbar, list)
+    body.append(layout)
     panel.append(header, body)
     return panel
   }
