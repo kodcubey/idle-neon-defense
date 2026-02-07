@@ -301,6 +301,9 @@ export type GameState = {
   // Starts at 1; can be increased up to config.modules.slotCount.
   moduleSlotsUnlocked: number
 
+  // Rewarded ad: next time (UTC ms) the player can earn +Paladyum reward.
+  rewardedAdNextEligibleUTC: number
+
   prestigePoints: number
   settings: Settings
   stats: Stats

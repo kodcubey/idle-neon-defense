@@ -80,6 +80,7 @@ export function createNewState(config: GameConfig, nowUTC: number): GameState {
     modulesEquipped,
     moduleLevels,
     moduleSlotsUnlocked: 1,
+    rewardedAdNextEligibleUTC: 0,
     prestigePoints: 0,
     settings: defaultSettings(),
     stats: defaultStats(),
@@ -185,6 +186,11 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
     ;(merged as any).moduleSlotsUnlocked = 1
   }
   ;(merged as any).moduleSlotsUnlocked = Math.max(1, Math.min(config.modules.slotCount, Math.floor((merged as any).moduleSlotsUnlocked)))
+
+  if (typeof (merged as any).rewardedAdNextEligibleUTC !== 'number' || !Number.isFinite((merged as any).rewardedAdNextEligibleUTC)) {
+    ;(merged as any).rewardedAdNextEligibleUTC = 0
+  }
+  ;(merged as any).rewardedAdNextEligibleUTC = Math.max(0, Math.floor((merged as any).rewardedAdNextEligibleUTC))
 
   // Offline progression is disabled; always refresh the save timestamp on load.
   merged.lastSaveTimestampUTC = nowUTC
