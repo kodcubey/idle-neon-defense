@@ -503,7 +503,7 @@ export function createUIStateMachine(args: UIArgs) {
     const adBtn = btn('', 'btn')
     adBtn.style.flex = '0 0 auto'
 
-    const COOLDOWN_MS = 10 * 60 * 60 * 1000
+    const COOLDOWN_MS = 2 * 60 * 60 * 1000
     const REWARD_PAL = 5
 
     const fmtHHMMSS = (ms: number) => {
