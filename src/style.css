@@ -653,10 +653,19 @@ input:focus {
 }
 
 .ng-mod-upgrade-row {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
-  flex-wrap: wrap;
+}
+
+.ng-mod-add {
+  min-width: 110px;
+}
+
+@media (max-width: 420px) {
+  .ng-mod-upgrade-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .ng-modules-pager {

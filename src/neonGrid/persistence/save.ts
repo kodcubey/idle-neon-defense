@@ -189,6 +189,16 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
     merged.moduleLevels[def.id] = Math.max(1, Math.floor(merged.moduleLevels[def.id]))
   }
 
+  // Remove deprecated modules from older saves (keeps state consistent with current config).
+  const removedModuleIds = ['UT_SPLITSHOT_ARRAY']
+  for (const id of removedModuleIds) {
+    if (merged.modulesUnlocked && typeof merged.modulesUnlocked === 'object') delete (merged.modulesUnlocked as any)[id]
+    if (merged.moduleLevels && typeof merged.moduleLevels === 'object') delete (merged.moduleLevels as any)[id]
+    for (let s = 1; s <= config.modules.slotCount; s++) {
+      if (merged.modulesEquipped?.[s] === id) merged.modulesEquipped[s] = null
+    }
+  }
+
   for (let s = 1; s <= config.modules.slotCount; s++) {
     if (!(s in merged.modulesEquipped)) merged.modulesEquipped[s] = null
   }

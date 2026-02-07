@@ -318,16 +318,6 @@ export const defaultConfig: GameConfig = {
 
       // UTILITY — changes how you play (abilities), with meaningful costs.
       {
-        id: 'UT_SPLITSHOT_ARRAY',
-        nameTR: 'Splitshot Array',
-        category: 'UTILITY',
-        iconConcept: 'forked beams',
-        maxEffectiveLevel: 8,
-        shotCountPerLevel: 0.5,
-        shotCountCap: 4,
-        dmgMultPerLevel: -0.012,
-      },
-      {
         id: 'UT_PHASE_CLOAK',
         nameTR: 'Phase Cloak',
         category: 'UTILITY',

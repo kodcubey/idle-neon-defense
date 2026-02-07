@@ -2071,7 +2071,7 @@ export function createUIStateMachine(args: UIArgs) {
         actions.appendChild(row)
       } else {
         const eqSlot = equippedById.get(def.id) ?? null
-        const add = btn(eqSlot ? `Equipped (S${eqSlot})` : 'Add', 'btn')
+        const add = btn(eqSlot ? `Equipped (S${eqSlot})` : 'Add', eqSlot ? 'btn ng-mod-add' : 'btn btn-primary ng-mod-add')
         add.disabled = !!eqSlot
         add.onclick = () => {
           if (eqSlot) return
@@ -2089,7 +2089,7 @@ export function createUIStateMachine(args: UIArgs) {
         const level = Math.max(1, Math.floor(lastState.moduleLevels[def.id] ?? 1))
         const cost = moduleUpgradeCostPoints(level, config)
 
-        const b1 = btn(`+1 (${formatPaladyumInt(cost)} Paladyum)`, 'btn')
+        const b1 = btn('+1', 'btn')
         b1.onclick = () => {
           void (async () => {
             const doLocal = () => {
@@ -2205,7 +2205,7 @@ export function createUIStateMachine(args: UIArgs) {
         }
 
         const rowTop = el('div', 'ng-mod-actions-row')
-        rowTop.append(add, kv('Level', String(level), true))
+        rowTop.append(add, kv('Level', String(level), true), kv('+1 Cost', formatPaladyumInt(cost), true))
 
         const rowUp = el('div', 'ng-mod-upgrade-row')
         rowUp.append(b1, b10, bM)

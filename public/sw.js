@@ -1,5 +1,5 @@
 /* Minimal Service Worker to enable installability (PWA). */
-const CACHE = 'neon-grid-pwa-v1'
+const CACHE = 'neon-grid-pwa-v2'
 
 self.addEventListener('install', (event) => {
   self.skipWaiting()
@@ -12,7 +12,12 @@ self.addEventListener('install', (event) => {
 })
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim())
+  event.waitUntil(
+    Promise.resolve()
+      .then(() => caches.keys())
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
+  )
 })
 
 self.addEventListener('fetch', (event) => {
