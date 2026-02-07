@@ -1881,7 +1881,7 @@ export function createUIStateMachine(args: UIArgs) {
 
           const effect = el('div', 'muted')
           effect.style.fontSize = '12px'
-          effect.textContent = def ? moduleEffectText(def) : ''
+          effect.textContent = def ? moduleEffectText(def, Math.max(1, Math.floor(lastState!.moduleLevels[equippedId] ?? 1)), config) : ''
 
           bb.append(title, effect)
 
@@ -2003,7 +2003,7 @@ export function createUIStateMachine(args: UIArgs) {
 
       const effect = el('div', 'muted')
       effect.style.fontSize = '12px'
-      effect.textContent = moduleEffectText(def)
+      effect.textContent = moduleEffectText(def, Math.max(1, Math.floor(lastState!.moduleLevels[def.id] ?? 1)), config)
 
       const actions = el('div', 'stack')
       actions.style.marginTop = '6px'
@@ -2289,35 +2289,57 @@ export function createUIStateMachine(args: UIArgs) {
     center.appendChild(panel)
   }
 
-  function moduleEffectText(def: GameConfig['modules']['defs'][number]): string {
-    const parts: string[] = []
-    const pct = (v: number) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`
+  function moduleEffectText(def: GameConfig['modules']['defs'][number], rawLevel: number, cfg: GameConfig): string {
+    const Lraw = typeof rawLevel === 'number' && Number.isFinite(rawLevel) ? Math.max(1, Math.floor(rawLevel)) : 1
+    const cap = typeof def.maxEffectiveLevel === 'number' && Number.isFinite(def.maxEffectiveLevel) ? Math.max(0, Math.floor(def.maxEffectiveLevel)) : Lraw
+    const L = Math.min(Lraw, cap)
 
-    if (def.dmgMultPerLevel) parts.push(`Damage: ${pct(def.dmgMultPerLevel)} / level`)
-    if (def.dmgFlatPerLevel) parts.push(`Flat Damage: ${def.dmgFlatPerLevel >= 0 ? '+' : ''}${def.dmgFlatPerLevel} / level`)
-    if (def.fireRateBonusPerLevel) parts.push(`Fire Rate: ${pct(def.fireRateBonusPerLevel)} / level`)
-    if (def.rangeBonusPerLevel) parts.push(`Range: ${def.rangeBonusPerLevel >= 0 ? '+' : ''}${def.rangeBonusPerLevel} / level`)
-    if (def.armorPiercePerLevel) parts.push(`Armor Pierce: ${pct(def.armorPiercePerLevel)} / level`)
-    if (def.baseHPBonusPerLevel) parts.push(`Base HP: ${def.baseHPBonusPerLevel >= 0 ? '+' : ''}${def.baseHPBonusPerLevel} / level`)
-    if (def.baseHPMultPerLevel) parts.push(`Max HP Mult: ${pct(def.baseHPMultPerLevel)} / level`)
-    if (def.goldMultPerLevel) parts.push(`Gold Mult: ${pct(def.goldMultPerLevel)} / level`)
+    const expRaw = (cfg.modules as any).levelExponent
+    const exp = typeof expRaw === 'number' && Number.isFinite(expRaw) ? clamp(expRaw, 0.35, 1.0) : 1.0
+    const effLevel = L > 0 ? Math.max(0, Math.pow(L, exp)) : 0
+
+    const parts: string[] = []
+    const pctFromFrac = (frac: number) => `${frac >= 0 ? '+' : ''}${(frac * 100).toFixed(1)}%`
+    const n1 = (v: number) => {
+      const vv = Math.abs(v) < 1e-9 ? 0 : v
+      const i = Math.round(vv)
+      return Math.abs(vv - i) < 1e-6 ? String(i) : vv.toFixed(1)
+    }
+
+    if (def.dmgMultPerLevel) parts.push(`Damage: ${pctFromFrac(def.dmgMultPerLevel * effLevel)}`)
+    if (def.dmgFlatPerLevel) parts.push(`Flat Damage: ${def.dmgFlatPerLevel * effLevel >= 0 ? '+' : ''}${n1(def.dmgFlatPerLevel * effLevel)}`)
+    if (def.fireRateBonusPerLevel) parts.push(`Fire Rate: ${pctFromFrac(def.fireRateBonusPerLevel * effLevel)}`)
+    if (def.rangeBonusPerLevel) parts.push(`Range: ${def.rangeBonusPerLevel * effLevel >= 0 ? '+' : ''}${n1(def.rangeBonusPerLevel * effLevel)}`)
+    if (def.armorPiercePerLevel) parts.push(`Armor Pierce: ${pctFromFrac(def.armorPiercePerLevel * effLevel)}`)
+    if (def.baseHPBonusPerLevel) parts.push(`Base HP: ${def.baseHPBonusPerLevel * effLevel >= 0 ? '+' : ''}${n1(def.baseHPBonusPerLevel * effLevel)}`)
+    if (def.baseHPMultPerLevel) parts.push(`Max HP Mult: ${pctFromFrac(def.baseHPMultPerLevel * effLevel)}`)
+    if (def.goldMultPerLevel) parts.push(`Gold Mult: ${pctFromFrac(def.goldMultPerLevel * effLevel)}`)
 
     if (def.shotCountPerLevel) {
-      const cap = typeof def.shotCountCap === 'number' ? ` (cap ${Math.max(1, Math.floor(def.shotCountCap))})` : ''
-      parts.push(`Ability: Multi-shot (+${def.shotCountPerLevel} shots/level, floored)${cap}`)
+      const add = Math.floor(def.shotCountPerLevel * effLevel)
+      const capTxt = typeof def.shotCountCap === 'number' && Number.isFinite(def.shotCountCap) ? ` (cap ${Math.max(1, Math.floor(def.shotCountCap))})` : ''
+      parts.push(`Ability: Multi-shot (+${Math.max(0, add)} shots)${capTxt}`)
     }
     if (def.invulnDurationSecPerLevel && def.invulnCooldownSec) {
-      parts.push(`Ability: Invuln vs escapes (${def.invulnDurationSecPerLevel.toFixed(2)}s/level, every ${def.invulnCooldownSec}s)`)
+      const dur = Math.max(0, def.invulnDurationSecPerLevel * effLevel)
+      parts.push(`Ability: Invuln vs escapes (${dur.toFixed(2)}s, every ${Math.max(0.1, def.invulnCooldownSec)}s)`)
     }
 
     if (def.critEveryN && def.critMultPerLevel) {
-      parts.push(`Ability: Crit (every ${Math.max(2, Math.floor(def.critEveryN))} shots, +${pct(def.critMultPerLevel)} mult/level)`)
+      const n = Math.max(2, Math.floor(def.critEveryN))
+      const mult = Math.max(0, def.critMultPerLevel * effLevel)
+      parts.push(`Ability: Crit (every ${n} shots, +${(mult * 100).toFixed(1)}% mult)`)
     }
 
     if (def.enemySpeedMultPerLevel) {
-      parts.push(`Ability: Slow enemies (${pct(def.enemySpeedMultPerLevel)} speed/level)`)
+      const delta = def.enemySpeedMultPerLevel * effLevel
+      parts.push(`Ability: Enemy Speed ${pctFromFrac(delta)}`)
     }
-    if (typeof def.maxEffectiveLevel === 'number') parts.push(`Balance cap: effective Lv ≤ ${Math.max(0, Math.floor(def.maxEffectiveLevel))}`)
+
+    if (typeof def.maxEffectiveLevel === 'number' && Number.isFinite(def.maxEffectiveLevel)) {
+      const capN = Math.max(0, Math.floor(def.maxEffectiveLevel))
+      parts.push(`Balance cap: effective Lv ≤ ${capN}${Lraw > capN ? ` (using Lv ${L})` : ''}`)
+    }
 
     return parts.length ? parts.join(' • ') : 'Effect: (not defined)'
   }
