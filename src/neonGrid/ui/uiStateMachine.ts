@@ -522,7 +522,7 @@ export function createUIStateMachine(args: UIArgs) {
       const eligible = left <= 0
 
       adBtn.disabled = !eligible || rewardedAdInProgress
-      adBtn.textContent = eligible ? `Reklam izle (+${REWARD_PAL})` : `Reklam (+${REWARD_PAL}) • ${fmtHHMMSS(left)}`
+      adBtn.textContent = eligible ? `Watch ad (+${REWARD_PAL})` : `Ad (+${REWARD_PAL}) • ${fmtHHMMSS(left)}`
     }
 
     adBtn.onclick = () => {
@@ -878,7 +878,7 @@ export function createUIStateMachine(args: UIArgs) {
       const b = el('div', 'panel-body')
 
       const note = el('div', 'muted')
-      note.textContent = 'Reklam bitmeden oyuna dönemezsin. Çıkarsan ödül iptal olur.'
+      note.textContent = "You can't return to the game before the ad ends. Leaving cancels the reward."
 
       const status = el('div', 'mono muted')
       status.style.marginTop = '10px'
@@ -899,7 +899,7 @@ export function createUIStateMachine(args: UIArgs) {
       const actions = el('div', 'stack')
       actions.style.marginTop = '12px'
 
-      const giveUp = btn('Dön (Ödül yok)', 'btn btn-danger')
+      const giveUp = btn('Leave (No reward)', 'btn btn-danger')
       actions.append(giveUp)
 
       b.append(note, status, barOuter, actions)
@@ -924,14 +924,14 @@ export function createUIStateMachine(args: UIArgs) {
       const onVis = () => {
         if (settled) return
         if (document.visibilityState === 'hidden') {
-          alert('Reklam erken kapatıldı/arka plana alındı. Ödül iptal.')
+          alert('Ad closed early / sent to background. Reward cancelled.')
           settle(false)
         }
       }
       document.addEventListener('visibilitychange', onVis)
 
       giveUp.onclick = () => {
-        alert('Ödül iptal.')
+        alert('Reward cancelled.')
         settle(false)
       }
 
@@ -959,12 +959,12 @@ export function createUIStateMachine(args: UIArgs) {
       const h = el('div', 'panel-header')
       const title = el('div')
       title.textContent = 'Rewarded Video Ad'
-      const leave = btn('Dön (Ödül yok)', 'btn btn-danger')
+      const leave = btn('Leave (No reward)', 'btn btn-danger')
       h.append(title, leave)
 
       const b = el('div', 'panel-body')
       const note = el('div', 'muted')
-      note.textContent = 'Reklam bitmeden oyuna dönemezsin. Çıkarsan ödül iptal olur.'
+      note.textContent = "You can't return to the game before the ad ends. Leaving cancels the reward."
       note.style.marginBottom = '10px'
 
       const adContainer = el('div')
@@ -1003,7 +1003,7 @@ export function createUIStateMachine(args: UIArgs) {
       const onVis = () => {
         if (settled) return
         if (document.visibilityState === 'hidden') {
-          alert('Reklam erken kapatıldı/arka plana alındı. Ödül iptal.')
+          alert('Ad closed early / sent to background. Reward cancelled.')
           settle(false)
         }
       }
