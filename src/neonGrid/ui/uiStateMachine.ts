@@ -544,42 +544,29 @@ export function createUIStateMachine(args: UIArgs) {
     const row = el('div', 'stack ng-menu-actions')
     row.style.marginTop = '12px'
 
-    const cont = btn('Continue', 'btn btn-primary')
-    cont.onclick = () => {
-      void (async () => {
-        if (!game) return
-
-        const st = firebaseSync?.getStatus()
-        const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
-        if (canCloud) {
-          try {
-            await withLoading(async () => {
-              game!.setPaused(true)
-              await maybeInitialCloudSync()
-
-              const cloudMeta = await firebaseSync!.downloadMeta()
-              if (!cloudMeta) {
-                await firebaseSync!.uploadMetaFromState(game!.getSnapshot())
-              } else {
-                const cur = game!.getSnapshot()
-                game!.setSnapshot(applyCloudMetaToState(cur, cloudMeta))
-                lastState = game!.getSnapshot()
-              }
-            })
-          } catch (e) {
-            alert(String((e as any)?.message ?? e))
-          }
-        }
-
-        game.setPaused(false)
-        setScreen('hud')
-      })()
+    const requireLogin = (): boolean => {
+      if (!firebaseSync) {
+        alert('Login is unavailable.')
+        return false
+      }
+      const st = firebaseSync.getStatus()
+      if (!st.configured) {
+        alert('Login is unavailable.')
+        return false
+      }
+      if (!st.signedIn) {
+        alert("You must log in. If you don't have an account, please sign up.")
+        setScreen('login')
+        return false
+      }
+      return true
     }
 
     const newRun = btn('New Run', 'btn')
     newRun.onclick = () => {
       void (async () => {
         if (!game) return
+        if (!requireLogin()) return
 
         const st = firebaseSync?.getStatus()
         const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
@@ -611,6 +598,7 @@ export function createUIStateMachine(args: UIArgs) {
     const modules = btn('Modules', 'btn')
     modules.onclick = () => {
       void (async () => {
+        if (!requireLogin()) return
         if (game) game.setPaused(true)
         await showModulesModal()
       })()
@@ -618,6 +606,7 @@ export function createUIStateMachine(args: UIArgs) {
 
     const stats = btn('Stats', 'btn')
     stats.onclick = () => {
+      if (!requireLogin()) return
       if (game) game.setPaused(true)
       showStatsModal()
     }
@@ -628,18 +617,14 @@ export function createUIStateMachine(args: UIArgs) {
       showSettingsModal()
     }
 
-    const credits = btn('Credits', 'btn')
-    credits.onclick = () => {
-      alert('NEON GRID — Deterministic Idle Tower Defense\nUI/Sim prototype skeleton.')
-    }
-
     const metaUpg = btn('Meta Upgrades', 'btn')
     metaUpg.onclick = () => {
       if (!lastState) return
+      if (!requireLogin()) return
       void showMetaUpgradesModal()
     }
 
-    row.append(cont, newRun, metaUpg, modules, stats, settings, credits)
+    row.append(newRun, metaUpg, modules, stats, settings)
 
     const card = el('div', 'panel')
     card.style.marginTop = '12px'
