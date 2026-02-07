@@ -496,12 +496,15 @@ export function createUIStateMachine(args: UIArgs) {
     balancesRow.style.alignItems = 'center'
     balancesRow.style.gap = '10px'
 
+    const stForAds = firebaseSync?.getStatus()
+    const showRewardedAds = !!firebaseSync && !!stForAds?.configured && !!stForAds?.signedIn
+
     const balances = el('div', 'muted')
     const pal = lastState?.points ?? 0
     balances.innerHTML = `Paladyum: <span class="mono">${formatPaladyumInt(pal)}</span>`
 
-    const adBtn = btn('', 'btn')
-    adBtn.style.flex = '0 0 auto'
+    const adBtn = showRewardedAds ? btn('', 'btn') : null
+    if (adBtn) adBtn.style.flex = '0 0 auto'
 
     const COOLDOWN_MS = 2 * 60 * 60 * 1000
     const REWARD_PAL = 5
@@ -516,6 +519,7 @@ export function createUIStateMachine(args: UIArgs) {
     }
 
     const updateRewardBtn = () => {
+      if (!adBtn) return
       const now = Date.now()
       const nextAt = Math.max(0, Math.floor(lastState?.rewardedAdNextEligibleUTC ?? 0))
       const left = Math.max(0, nextAt - now)
@@ -525,7 +529,8 @@ export function createUIStateMachine(args: UIArgs) {
       adBtn.textContent = eligible ? `Watch ad (+${REWARD_PAL})` : `Ad (+${REWARD_PAL}) • ${fmtHHMMSS(left)}`
     }
 
-    adBtn.onclick = () => {
+    if (adBtn)
+      adBtn.onclick = () => {
       const now = Date.now()
       const nextAt = Math.max(0, Math.floor(lastState?.rewardedAdNextEligibleUTC ?? 0))
       if (rewardedAdInProgress) return
@@ -534,12 +539,20 @@ export function createUIStateMachine(args: UIArgs) {
         return
       }
       void watchRewardedAdForPaladyum({ rewardPaladyum: REWARD_PAL, cooldownMs: COOLDOWN_MS })
-    }
+      }
 
-    balancesRow.append(balances, adBtn)
-    if (menuRewardTick != null) window.clearInterval(menuRewardTick)
-    menuRewardTick = window.setInterval(updateRewardBtn, 1000)
-    updateRewardBtn()
+    if (adBtn) {
+      balancesRow.append(balances, adBtn)
+      if (menuRewardTick != null) window.clearInterval(menuRewardTick)
+      menuRewardTick = window.setInterval(updateRewardBtn, 1000)
+      updateRewardBtn()
+    } else {
+      balancesRow.style.display = 'none'
+      if (menuRewardTick != null) {
+        window.clearInterval(menuRewardTick)
+        menuRewardTick = null
+      }
+    }
 
     const row = el('div', 'stack ng-menu-actions')
     row.style.marginTop = '12px'
@@ -2385,7 +2398,7 @@ export function createUIStateMachine(args: UIArgs) {
       return !!st.configured && !!st.signedIn
     }
     const persistLocal = () => {
-      if (!game || !lastState) return
+      if (!game) return
       saveSnapshot(config, game.getSnapshot())
     }
 
