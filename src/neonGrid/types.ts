@@ -73,15 +73,6 @@ export type EnemyTypeDef = {
   baseSpeed: number
 }
 
-export type ShopPackage = {
-  id: string
-  name: string
-  desc: string
-  paladyum: number
-  price: number
-  currency: 'USD'
-}
-
 export type GameConfig = {
   version: number
   ui: {
@@ -95,10 +86,6 @@ export type GameConfig = {
       text: string
     }
     tipsTR: string[]
-  }
-
-  shop: {
-    packages: ShopPackage[]
   }
 
   sim: {

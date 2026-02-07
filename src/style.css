@@ -242,16 +242,6 @@ input:focus {
   border-color: var(--neon-magenta);
 }
 
-.btn-store {
-  border-color: color-mix(in srgb, var(--neon-lime) 70%, var(--stroke-strong));
-  background: color-mix(in srgb, rgba(14, 18, 38, 0.5) 78%, var(--neon-lime) 22%);
-}
-
-.btn-store:hover {
-  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--neon-lime) 28%, transparent));
-  border-color: var(--neon-lime);
-}
-
 .btn-danger {
   border-color: color-mix(in srgb, var(--danger) 75%, transparent);
   background: color-mix(in srgb, rgba(14, 18, 38, 0.5) 80%, var(--danger) 20%);
