@@ -65,7 +65,11 @@ export class GameScene extends Phaser.Scene {
     this.render(pub)
 
     // Keep volume in sync with state (UI slider).
-    if (this.sound) this.sound.volume = clamp01(pub.state.settings.audioMaster)
+    if (this.sound) {
+      const muted = !!(pub.state.settings as any).audioMuted
+      this.sound.mute = muted
+      this.sound.volume = clamp01(pub.state.settings.audioMaster)
+    }
   }
 
   private initBgm() {
@@ -89,7 +93,11 @@ export class GameScene extends Phaser.Scene {
     // Apply initial volume.
     try {
       const s = this.engine?.getSnapshot()
-      if (s) this.sound.volume = clamp01(s.settings.audioMaster)
+      if (s) {
+        const muted = !!(s.settings as any).audioMuted
+        this.sound.mute = muted
+        this.sound.volume = clamp01(s.settings.audioMaster)
+      }
     } catch {
       // ignore
     }

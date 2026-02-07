@@ -28,8 +28,8 @@ export type MetaSaveV1 = {
 export function extractMetaFromState(state: GameState): MetaSaveV1 {
   return {
     v: 1,
-    points: state.points,
-    prestigePoints: state.prestigePoints,
+    points: typeof state.points === 'number' && Number.isFinite(state.points) ? Math.max(0, Math.floor(state.points)) : 0,
+    prestigePoints: typeof state.prestigePoints === 'number' && Number.isFinite(state.prestigePoints) ? Math.max(0, Math.floor(state.prestigePoints)) : 0,
     rewardedAdNextEligibleUTC: state.rewardedAdNextEligibleUTC,
     towerMetaUpgrades: state.towerMetaUpgrades ? { ...state.towerMetaUpgrades } : undefined,
     settings: { ...state.settings },
@@ -121,6 +121,22 @@ export type FirebaseSyncStatus = {
 export type CloudMeta = {
   meta: MetaSaveV1
   clientUpdatedAtUTC: number
+}
+
+function sanitizeMetaIntegers(meta: MetaSaveV1): { meta: MetaSaveV1; changed: boolean } {
+  const nextPoints = typeof meta.points === 'number' && Number.isFinite(meta.points) ? Math.max(0, Math.floor(meta.points)) : 0
+  const nextPrestige =
+    typeof meta.prestigePoints === 'number' && Number.isFinite(meta.prestigePoints) ? Math.max(0, Math.floor(meta.prestigePoints)) : 0
+  const changed = nextPoints !== meta.points || nextPrestige !== meta.prestigePoints
+  if (!changed) return { meta, changed: false }
+  return {
+    meta: {
+      ...meta,
+      points: nextPoints,
+      prestigePoints: nextPrestige,
+    },
+    changed: true,
+  }
 }
 
 export type FirebaseSync = {
@@ -347,7 +363,38 @@ export function createFirebaseSync(): FirebaseSync {
 
       // New format: meta-only.
       if (data.meta && typeof data.meta === 'object') {
-        return { meta: data.meta as MetaSaveV1, clientUpdatedAtUTC: ts }
+        const raw = data.meta as MetaSaveV1
+        const sanitized = sanitizeMetaIntegers(raw)
+
+        // If cloud contains fractional Paladyum, fix it in-place (guarded by timestamp).
+        if (sanitized.changed) {
+          try {
+            await runTransaction(db(), async (tx) => {
+              const ref = saveDocRef(user!.uid)
+              const cur = await tx.get(ref)
+              if (!cur.exists()) return
+              const curData = cur.data() as Partial<SaveDocV1>
+              const curTs =
+                typeof curData.clientUpdatedAtUTC === 'number' && Number.isFinite(curData.clientUpdatedAtUTC) ? curData.clientUpdatedAtUTC : 0
+              if (curTs !== ts) return
+              const curMeta = (curData as any)?.meta
+              if (!curMeta || typeof curMeta !== 'object') return
+
+              tx.set(
+                ref,
+                {
+                  meta: sanitized.meta,
+                  updatedAt: serverTimestamp(),
+                } as Partial<SaveDocV1>,
+                { merge: true },
+              )
+            })
+          } catch {
+            // ignore
+          }
+        }
+
+        return { meta: sanitized.meta, clientUpdatedAtUTC: ts }
       }
 
       // Back-compat: if an older doc stored full state, derive meta from it.

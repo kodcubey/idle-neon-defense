@@ -2299,6 +2299,7 @@ export function createUIStateMachine(args: UIArgs) {
     const effLevel = L > 0 ? Math.max(0, Math.pow(L, exp)) : 0
 
     const parts: string[] = []
+    parts.push(`Lv ${Lraw}${Lraw > L ? ` (cap ${L})` : ''} • Eff Lv ${effLevel.toFixed(2)}`)
     const pctFromFrac = (frac: number) => `${frac >= 0 ? '+' : ''}${(frac * 100).toFixed(1)}%`
     const n1 = (v: number) => {
       const vv = Math.abs(v) < 1e-9 ? 0 : v
@@ -2379,6 +2380,9 @@ export function createUIStateMachine(args: UIArgs) {
     const panel = el('div', 'panel')
     panel.style.pointerEvents = 'auto'
 
+    // Settings must reflect the latest snapshot (not a potentially stale lastState).
+    const getSnap = () => (game ? game.getSnapshot() : lastState)
+
     const header = el('div', 'panel-header')
     header.appendChild(el('div')).textContent = 'Settings'
 
@@ -2388,20 +2392,104 @@ export function createUIStateMachine(args: UIArgs) {
 
     const body = el('div', 'panel-body')
 
+    let settingsSyncInProgress = false
+    let settingsSyncQueued = false
+    const canCloudSyncSettings = () => {
+      if (!firebaseSync) return false
+      const st = firebaseSync.getStatus()
+      return !!st.configured && !!st.signedIn
+    }
+    const persistLocal = () => {
+      if (!game || !lastState) return
+      saveSnapshot(config, game.getSnapshot())
+    }
+
+    const syncSettingsWithCloud = async (): Promise<void> => {
+      if (!canCloudSyncSettings()) return
+      if (!game) return
+
+      if (settingsSyncInProgress) {
+        settingsSyncQueued = true
+        return
+      }
+
+      settingsSyncInProgress = true
+      try {
+        await withLoading(async () => {
+          // Upload current local snapshot.
+          await firebaseSync!.uploadMetaFromState(game!.getSnapshot())
+
+          // Immediately pull back to confirm & refresh local copy.
+          const cloudMeta = await firebaseSync!.downloadMeta()
+          if (cloudMeta) {
+            const cur = game!.getSnapshot()
+            game!.setSnapshot(applyCloudMetaToState(cur, cloudMeta))
+            lastState = game!.getSnapshot()
+          }
+        })
+      } finally {
+        settingsSyncInProgress = false
+        if (settingsSyncQueued) {
+          settingsSyncQueued = false
+          void syncSettingsWithCloud()
+        }
+      }
+    }
+
     const audio = el('div')
     audio.innerHTML = `<div style="font-weight:800">Audio</div>`
+
+    const muteRow = el('div')
+    muteRow.style.display = 'flex'
+    muteRow.style.gap = '10px'
+    muteRow.style.alignItems = 'center'
+    muteRow.style.marginBottom = '6px'
+
+    const mute = document.createElement('input')
+    mute.type = 'checkbox'
+    mute.checked = !!((getSnap()?.settings as any)?.audioMuted)
+    const muteLabel = el('div', 'muted')
+    muteLabel.textContent = 'Mute'
+    mute.onchange = () => {
+      if (!game) return
+      const s = game.getSnapshot()
+      const next = {
+        ...s,
+        settings: { ...s.settings, audioMuted: Boolean(mute.checked) } as any,
+      }
+      game.setSnapshot(next)
+      lastState = game.getSnapshot()
+      persistLocal()
+      void syncSettingsWithCloud()
+    }
+    muteRow.append(mute, muteLabel)
+
     const slider = document.createElement('input')
     slider.type = 'range'
     slider.min = '0'
     slider.max = '1'
     slider.step = '0.01'
-    slider.value = String(lastState?.settings.audioMaster ?? 1)
+    slider.value = String(getSnap()?.settings.audioMaster ?? 1)
     slider.oninput = () => {
-      if (!game || !lastState) return
-      lastState.settings.audioMaster = Number(slider.value)
-      game.setSnapshot({ ...lastState })
+      if (!game) return
+      const s = game.getSnapshot()
+      const next = {
+        ...s,
+        settings: { ...s.settings, audioMaster: Number(slider.value) },
+      }
+      game.setSnapshot(next)
+      lastState = game.getSnapshot()
+      persistLocal()
     }
+
+    slider.onchange = () => {
+      if (!game || !lastState) return
+      // Only sync to Firestore on release to avoid spamming writes.
+      void syncSettingsWithCloud()
+    }
+
     audio.appendChild(slider)
+    audio.appendChild(muteRow)
 
     const nf = el('div')
     nf.style.marginTop = '12px'
@@ -2421,16 +2509,30 @@ export function createUIStateMachine(args: UIArgs) {
     markNF()
 
     suf.onclick = () => {
-      if (!game || !lastState) return
-      lastState.settings.numberFormat = 'suffix'
-      game.setSnapshot({ ...lastState })
+      if (!game) return
+      const s = game.getSnapshot()
+      const next = {
+        ...s,
+        settings: { ...s.settings, numberFormat: 'suffix' as const },
+      }
+      game.setSnapshot(next)
+      lastState = game.getSnapshot()
+      persistLocal()
+      void syncSettingsWithCloud()
       markNF()
       args.rerender()
     }
     sci.onclick = () => {
-      if (!game || !lastState) return
-      lastState.settings.numberFormat = 'scientific'
-      game.setSnapshot({ ...lastState })
+      if (!game) return
+      const s = game.getSnapshot()
+      const next = {
+        ...s,
+        settings: { ...s.settings, numberFormat: 'scientific' as const },
+      }
+      game.setSnapshot(next)
+      lastState = game.getSnapshot()
+      persistLocal()
+      void syncSettingsWithCloud()
       markNF()
       args.rerender()
     }

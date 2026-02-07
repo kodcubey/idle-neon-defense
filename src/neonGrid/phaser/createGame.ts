@@ -137,6 +137,14 @@ export function createGame(args: {
     pendingSnapshot = { ...next }
     // Quality is fixed to HIGH.
     pendingSnapshot.settings = { ...pendingSnapshot.settings, quality: 'high' }
+
+    // Paladyum / prestige are integer-only.
+    pendingSnapshot.points =
+      typeof pendingSnapshot.points === 'number' && Number.isFinite(pendingSnapshot.points) ? Math.max(0, Math.floor(pendingSnapshot.points)) : 0
+    pendingSnapshot.prestigePoints =
+      typeof pendingSnapshot.prestigePoints === 'number' && Number.isFinite(pendingSnapshot.prestigePoints)
+        ? Math.max(0, Math.floor(pendingSnapshot.prestigePoints))
+        : 0
     syncPendingToBridge()
 
     if (engine) {
@@ -146,7 +154,12 @@ export function createGame(args: {
 
     // Sync audio master volume (UI setting).
     try {
-      if ((game as any).sound) (game as any).sound.volume = Math.max(0, Math.min(1, pendingSnapshot.settings.audioMaster))
+      const anySound = (game as any).sound
+      if (anySound) {
+        const muted = !!(pendingSnapshot.settings as any).audioMuted
+        anySound.mute = muted
+        anySound.volume = Math.max(0, Math.min(1, pendingSnapshot.settings.audioMaster))
+      }
     } catch {
       // ignore
     }

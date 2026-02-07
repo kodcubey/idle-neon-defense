@@ -5,6 +5,7 @@ const STORAGE_KEY = 'neon-grid.save.v1'
 function defaultSettings(): Settings {
   return {
     audioMaster: 0.8,
+    audioMuted: false,
     quality: 'high',
     numberFormat: 'suffix',
     reduceEffects: false,
@@ -111,6 +112,11 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
     version: config.version,
   }
 
+  // Paladyum / prestige are integer-only.
+  merged.points = typeof merged.points === 'number' && Number.isFinite(merged.points) ? Math.max(0, Math.floor(merged.points)) : 0
+  merged.prestigePoints =
+    typeof merged.prestigePoints === 'number' && Number.isFinite(merged.prestigePoints) ? Math.max(0, Math.floor(merged.prestigePoints)) : 0
+
   // Stats: ensure object and fill any missing fields.
   if (!merged.stats || typeof merged.stats !== 'object') merged.stats = { ...base.stats }
   merged.stats = { ...base.stats, ...merged.stats }
@@ -136,6 +142,12 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
   // Settings: ensure object and force quality to HIGH (fixed).
   if (!merged.settings || typeof merged.settings !== 'object') merged.settings = { ...base.settings }
   merged.settings = { ...base.settings, ...merged.settings, quality: 'high' }
+
+  // Clamp audio settings.
+  const am = (merged.settings as any).audioMaster
+  merged.settings.audioMaster = typeof am === 'number' && Number.isFinite(am) ? Math.max(0, Math.min(1, am)) : base.settings.audioMaster
+  const muted = (merged.settings as any).audioMuted
+  ;(merged.settings as any).audioMuted = typeof muted === 'boolean' ? muted : base.settings.audioMuted
 
   // Legacy compatibility: if older saves had towerLevel, map it to damageLevel.
   const anyMerged = merged as unknown as { towerLevel?: number }
@@ -206,6 +218,11 @@ export function saveSnapshot(config: GameConfig, state: GameState) {
     version: config.version,
     lastSaveTimestampUTC: Date.now(),
   }
+
+  // Paladyum / prestige are integer-only.
+  snapshot.points = typeof snapshot.points === 'number' && Number.isFinite(snapshot.points) ? Math.max(0, Math.floor(snapshot.points)) : 0
+  snapshot.prestigePoints =
+    typeof snapshot.prestigePoints === 'number' && Number.isFinite(snapshot.prestigePoints) ? Math.max(0, Math.floor(snapshot.prestigePoints)) : 0
 
   localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
 }

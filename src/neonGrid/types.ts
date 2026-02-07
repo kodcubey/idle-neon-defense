@@ -3,6 +3,7 @@ export type QualityMode = 'low' | 'med' | 'high'
 
 export type Settings = {
   audioMaster: number // 0..1 (UI only; deterministic)
+  audioMuted: boolean
   quality: QualityMode
   numberFormat: NumberFormat
   reduceEffects: boolean
