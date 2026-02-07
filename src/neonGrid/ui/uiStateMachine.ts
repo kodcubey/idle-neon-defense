@@ -1,7 +1,7 @@
 import type { GameConfig, GameState, OfflineProgressResult, RunSummary, TowerUpgradeKey, WaveReport } from '../types'
 import type { NeonGridGame } from '../phaser/createGame'
 import type { SimPublic } from '../sim/SimEngine'
-import { applyMetaToState, type FirebaseSync } from '../persistence/firebaseSync'
+import { applyCloudMetaToState, type FirebaseSync } from '../persistence/firebaseSync'
 import { createNewState, saveSnapshot } from '../persistence/save'
 import { btn, clear, el, hr, kv } from './dom'
 import { formatNumber, formatPaladyumInt, formatPct, formatTimeMMSS } from './format'
@@ -280,7 +280,7 @@ export function createUIStateMachine(args: UIArgs) {
           await firebaseSync.uploadMetaFromState(game!.getSnapshot())
         } else {
           const cur = game!.getSnapshot()
-          game!.setSnapshot(applyMetaToState(cur, cloudMeta))
+          game!.setSnapshot(applyCloudMetaToState(cur, cloudMeta))
           lastState = game!.getSnapshot()
         }
 
@@ -562,7 +562,7 @@ export function createUIStateMachine(args: UIArgs) {
                 await firebaseSync!.uploadMetaFromState(game!.getSnapshot())
               } else {
                 const cur = game!.getSnapshot()
-                game!.setSnapshot(applyMetaToState(cur, cloudMeta))
+                game!.setSnapshot(applyCloudMetaToState(cur, cloudMeta))
                 lastState = game!.getSnapshot()
               }
             })
@@ -594,7 +594,7 @@ export function createUIStateMachine(args: UIArgs) {
                 await firebaseSync!.uploadMetaFromState(game!.getSnapshot())
               } else {
                 const cur = game!.getSnapshot()
-                game!.setSnapshot(applyMetaToState(cur, cloudMeta))
+                game!.setSnapshot(applyCloudMetaToState(cur, cloudMeta))
                 lastState = game!.getSnapshot()
               }
             })
@@ -612,32 +612,7 @@ export function createUIStateMachine(args: UIArgs) {
     modules.onclick = () => {
       void (async () => {
         if (game) game.setPaused(true)
-
-        // On entering Modules, refresh meta from cloud (if signed in) so
-        // equipped slots/levels don't "pop in" after a delayed sync.
-        const st = firebaseSync?.getStatus()
-        const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
-        if (canCloud) {
-          try {
-            await withLoading(async () => {
-              await maybeInitialCloudSync()
-              if (!game) return
-              const cloudMeta = await firebaseSync!.downloadMeta()
-              if (!cloudMeta) {
-                // Best-effort: if doc doesn't exist, create it from local.
-                await firebaseSync!.uploadMetaFromState(game.getSnapshot())
-                return
-              }
-              const cur = game.getSnapshot()
-              game.setSnapshot(applyMetaToState(cur, cloudMeta))
-              lastState = game.getSnapshot()
-            })
-          } catch (e) {
-            alert(String((e as any)?.message ?? e))
-          }
-        }
-
-        showModulesModal()
+        await showModulesModal()
       })()
     }
 
@@ -661,7 +636,7 @@ export function createUIStateMachine(args: UIArgs) {
     const metaUpg = btn('Meta Upgrades', 'btn')
     metaUpg.onclick = () => {
       if (!lastState) return
-      showMetaUpgradesModal()
+      void showMetaUpgradesModal()
     }
 
     row.append(cont, newRun, metaUpg, modules, stats, settings, credits)
@@ -1081,8 +1056,30 @@ export function createUIStateMachine(args: UIArgs) {
     })
   }
 
-  function showMetaUpgradesModal() {
-    if (!lastState) return
+  async function showMetaUpgradesModal() {
+    if (!lastState || !game) return
+
+    const g = game
+
+    const refreshMetaFromCloud = async (opts?: { showSpinner?: boolean }) => {
+      if (!firebaseSync) return
+      const st = firebaseSync.getStatus()
+      if (!st.configured || !st.signedIn) return
+
+      const task = async () => {
+        const cloudMeta = await firebaseSync.downloadMeta()
+        if (!cloudMeta) return
+        const cur = g.getSnapshot()
+        g.setSnapshot(applyCloudMetaToState(cur, cloudMeta))
+        lastState = g.getSnapshot()
+      }
+
+      if (opts?.showSpinner) await withLoading(task)
+      else await task()
+    }
+
+    // On every open, re-fetch Paladyum/meta from the DB.
+    await refreshMetaFromCloud({ showSpinner: true })
 
     const modal = el('div', 'panel')
     modal.style.width = 'min(760px, calc(100vw - 20px))'
@@ -1093,7 +1090,18 @@ export function createUIStateMachine(args: UIArgs) {
     title.textContent = 'Meta Upgrades (Permanent)'
     const close = btn('Close', 'btn')
     const overlay = mountModal(modal)
-    close.onclick = () => overlay.remove()
+    close.onclick = () => {
+      overlay.remove()
+
+      // On close, pull again (no spinner) so the menu Paladyum stays in sync.
+      void (async () => {
+        try {
+          await refreshMetaFromCloud()
+        } finally {
+          render()
+        }
+      })()
+    }
     h.append(title, close)
 
     const b = el('div', 'panel-body')
@@ -1106,7 +1114,7 @@ export function createUIStateMachine(args: UIArgs) {
       bal,
       renderUpgradesTabs(() => {
         overlay.remove()
-        showMetaUpgradesModal()
+        void showMetaUpgradesModal()
       }),
     )
 
@@ -1166,24 +1174,59 @@ export function createUIStateMachine(args: UIArgs) {
         bM.disabled = true
       }
 
-      const doBuy = (amt: 1 | 10 | 'max', elBtn: HTMLButtonElement) => {
+      const doBuy = async (amt: 1 | 10 | 'max', elBtn: HTMLButtonElement) => {
         if (!game) {
           flashFail(elBtn)
           return
         }
-        const ok = (game as any).buyMetaUpgrade?.(key, amt)
-        if (!ok) {
+        const g = game
+
+        let buyOk = false
+        await withLoading(async () => {
+          // Refresh from DB before the purchase so costs/points are up to date.
+          const st = firebaseSync?.getStatus?.()
+          if (firebaseSync && st?.configured && st?.signedIn) {
+            const cloudMeta = await firebaseSync.downloadMeta()
+            if (cloudMeta) {
+              const cur = g.getSnapshot()
+              g.setSnapshot(applyCloudMetaToState(cur, cloudMeta))
+            }
+          }
+
+          buyOk = Boolean((g as any).buyMetaUpgrade?.(key, amt))
+          if (!buyOk) return
+
+          // Persist locally immediately.
+          const afterBuy = g.getSnapshot()
+          saveSnapshot(config, afterBuy)
+
+          // Push + re-pull meta so Paladyum reflects the DB after spending.
+          if (firebaseSync && st?.configured && st?.signedIn) {
+            await firebaseSync.uploadMetaFromState(afterBuy)
+            const cloudMeta2 = await firebaseSync.downloadMeta()
+            if (cloudMeta2) {
+              const cur2 = g.getSnapshot()
+              g.setSnapshot(applyCloudMetaToState(cur2, cloudMeta2))
+            }
+          }
+
+          const finalSnap = g.getSnapshot()
+          saveSnapshot(config, finalSnap)
+          lastState = finalSnap
+        })
+
+        if (!buyOk) {
           flashFail(elBtn)
           return
         }
-        lastState = game.getSnapshot()
+
         overlay.remove()
-        showMetaUpgradesModal()
+        void showMetaUpgradesModal()
       }
 
-      b1.onclick = () => doBuy(1, b1)
-      b10.onclick = () => doBuy(10, b10)
-      bM.onclick = () => doBuy('max', bM)
+      b1.onclick = () => void doBuy(1, b1)
+      b10.onclick = () => void doBuy(10, b10)
+      bM.onclick = () => void doBuy('max', bM)
 
       controls.append(b1, b10, bM)
       box.append(left, controls)
@@ -1687,6 +1730,8 @@ export function createUIStateMachine(args: UIArgs) {
   }): HTMLElement {
     if (!game || !lastState) return el('div')
 
+    const g = game
+
     const panel = el('div', 'panel')
     panel.style.maxWidth = '920px'
     panel.style.margin = '0 auto'
@@ -1743,6 +1788,14 @@ export function createUIStateMachine(args: UIArgs) {
       if (!firebaseSync) return false
       const st = firebaseSync.getStatus()
       return !!st.configured && !!st.signedIn
+    }
+
+    const persistMetaAfterLocalChange = async () => {
+      const snapshot = g.getSnapshot()
+      saveSnapshot(config, snapshot)
+      if (shouldCloudSyncOnEquip()) {
+        await firebaseSync!.uploadMetaFromState(snapshot)
+      }
     }
 
     const setEquip = async (slot: number, id: string | null): Promise<boolean> => {
@@ -1863,14 +1916,41 @@ export function createUIStateMachine(args: UIArgs) {
       const buy = btn(`Buy Slot (${formatPaladyumInt(cost)} Paladyum)`, 'btn btn-primary')
       buy.style.marginTop = '10px'
       buy.onclick = () => {
-        if (!game) return
-        const ok = game.unlockModuleSlot()
-        if (!ok) {
-          flashFail(buy)
-          return
-        }
-        lastState = game.getSnapshot()
-        args.rerender()
+        void (async () => {
+          const doLocal = () => {
+            const ok = g.unlockModuleSlot()
+            if (!ok) return false
+            lastState = g.getSnapshot()
+            return true
+          }
+
+          if (shouldCloudSyncOnEquip()) {
+            try {
+              const ok = await withLoading(async () => {
+                const localOk = doLocal()
+                if (!localOk) return false
+                await persistMetaAfterLocalChange()
+                return true
+              })
+              if (!ok) flashFail(buy)
+              args.rerender()
+              return
+            } catch (e) {
+              alert(String((e as any)?.message ?? e))
+              lastState = g.getSnapshot()
+              args.rerender()
+              return
+            }
+          }
+
+          const ok = doLocal()
+          if (!ok) {
+            flashFail(buy)
+            return
+          }
+          await persistMetaAfterLocalChange()
+          args.rerender()
+        })()
       }
       sb.appendChild(buy)
     }
@@ -1933,14 +2013,41 @@ export function createUIStateMachine(args: UIArgs) {
         const cost = moduleUnlockCostPoints(unlockedCount, config)
         const b = btn(`Unlock (${formatPaladyumInt(cost)} Paladyum)`, 'btn btn-primary')
         b.onclick = () => {
-          if (!game) return
-          const ok = game.unlockModule(def.id)
-          if (!ok) {
-            flashFail(b)
-            return
-          }
-          lastState = game.getSnapshot()
-          args.rerender()
+          void (async () => {
+            const doLocal = () => {
+              const ok = g.unlockModule(def.id)
+              if (!ok) return false
+              lastState = g.getSnapshot()
+              return true
+            }
+
+            if (shouldCloudSyncOnEquip()) {
+              try {
+                const ok = await withLoading(async () => {
+                  const localOk = doLocal()
+                  if (!localOk) return false
+                  await persistMetaAfterLocalChange()
+                  return true
+                })
+                if (!ok) flashFail(b)
+                args.rerender()
+                return
+              } catch (e) {
+                alert(String((e as any)?.message ?? e))
+                lastState = g.getSnapshot()
+                args.rerender()
+                return
+              }
+            }
+
+            const ok = doLocal()
+            if (!ok) {
+              flashFail(b)
+              return
+            }
+            await persistMetaAfterLocalChange()
+            args.rerender()
+          })()
         }
         actions.appendChild(b)
       } else {
@@ -1965,27 +2072,117 @@ export function createUIStateMachine(args: UIArgs) {
 
         const b1 = btn(`+1 (${formatPaladyumInt(cost)} Paladyum)`, 'btn')
         b1.onclick = () => {
-          if (!game) return
-          const ok = game.upgradeModule(def.id, 1)
-          if (!ok) { flashFail(b1); return }
-          lastState = game.getSnapshot()
-          args.rerender()
+          void (async () => {
+            const doLocal = () => {
+              const ok = g.upgradeModule(def.id, 1)
+              if (!ok) return false
+              lastState = g.getSnapshot()
+              return true
+            }
+
+            if (shouldCloudSyncOnEquip()) {
+              try {
+                const ok = await withLoading(async () => {
+                  const localOk = doLocal()
+                  if (!localOk) return false
+                  await persistMetaAfterLocalChange()
+                  return true
+                })
+                if (!ok) flashFail(b1)
+                args.rerender()
+                return
+              } catch (e) {
+                alert(String((e as any)?.message ?? e))
+                lastState = g.getSnapshot()
+                args.rerender()
+                return
+              }
+            }
+
+            const ok = doLocal()
+            if (!ok) {
+              flashFail(b1)
+              return
+            }
+            await persistMetaAfterLocalChange()
+            args.rerender()
+          })()
         }
         const b10 = btn('+10', 'btn')
         b10.onclick = () => {
-          if (!game) return
-          const ok = game.upgradeModule(def.id, 10)
-          if (!ok) { flashFail(b10); return }
-          lastState = game.getSnapshot()
-          args.rerender()
+          void (async () => {
+            const doLocal = () => {
+              const ok = g.upgradeModule(def.id, 10)
+              if (!ok) return false
+              lastState = g.getSnapshot()
+              return true
+            }
+
+            if (shouldCloudSyncOnEquip()) {
+              try {
+                const ok = await withLoading(async () => {
+                  const localOk = doLocal()
+                  if (!localOk) return false
+                  await persistMetaAfterLocalChange()
+                  return true
+                })
+                if (!ok) flashFail(b10)
+                args.rerender()
+                return
+              } catch (e) {
+                alert(String((e as any)?.message ?? e))
+                lastState = g.getSnapshot()
+                args.rerender()
+                return
+              }
+            }
+
+            const ok = doLocal()
+            if (!ok) {
+              flashFail(b10)
+              return
+            }
+            await persistMetaAfterLocalChange()
+            args.rerender()
+          })()
         }
         const bM = btn('+Max', 'btn')
         bM.onclick = () => {
-          if (!game) return
-          const ok = game.upgradeModule(def.id, 'max')
-          if (!ok) { flashFail(bM); return }
-          lastState = game.getSnapshot()
-          args.rerender()
+          void (async () => {
+            const doLocal = () => {
+              const ok = g.upgradeModule(def.id, 'max')
+              if (!ok) return false
+              lastState = g.getSnapshot()
+              return true
+            }
+
+            if (shouldCloudSyncOnEquip()) {
+              try {
+                const ok = await withLoading(async () => {
+                  const localOk = doLocal()
+                  if (!localOk) return false
+                  await persistMetaAfterLocalChange()
+                  return true
+                })
+                if (!ok) flashFail(bM)
+                args.rerender()
+                return
+              } catch (e) {
+                alert(String((e as any)?.message ?? e))
+                lastState = g.getSnapshot()
+                args.rerender()
+                return
+              }
+            }
+
+            const ok = doLocal()
+            if (!ok) {
+              flashFail(bM)
+              return
+            }
+            await persistMetaAfterLocalChange()
+            args.rerender()
+          })()
         }
 
         actions.append(add, kv('Level', String(level), true), b1, b10, bM)
@@ -2017,22 +2214,68 @@ export function createUIStateMachine(args: UIArgs) {
     return panel
   }
 
-  function showModulesModal() {
+  async function showModulesModal() {
     if (!game || !lastState) return
+
+    const g = game
+
+    const refreshMetaFromCloud = async (opts?: { showSpinner?: boolean }) => {
+      const st = firebaseSync?.getStatus()
+      const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
+      if (!canCloud) return
+
+      const task = async () => {
+        await maybeInitialCloudSync()
+        const cloudMeta = await firebaseSync!.downloadMeta()
+        if (!cloudMeta) {
+          // Best-effort: if doc doesn't exist, create it from local.
+          await firebaseSync!.uploadMetaFromState(g.getSnapshot())
+          return
+        }
+        const cur = g.getSnapshot()
+        g.setSnapshot(applyCloudMetaToState(cur, cloudMeta))
+        lastState = g.getSnapshot()
+      }
+
+      if (opts?.showSpinner) await withLoading(task)
+      else await task()
+    }
+
+    // On every open, re-fetch meta from the DB.
+    try {
+      await refreshMetaFromCloud({ showSpinner: true })
+    } catch (e) {
+      alert(String((e as any)?.message ?? e))
+    }
+
+    const closeAndRefresh = () => {
+      overlay.remove()
+
+      // On close, pull again (no spinner) so the menu Paladyum stays in sync.
+      void (async () => {
+        try {
+          await refreshMetaFromCloud()
+        } catch {
+          // ignore
+        } finally {
+          render()
+        }
+      })()
+    }
 
     const panel = buildModulesPanel({
       backLabel: 'Close',
-      onBack: () => overlay.remove(),
+      onBack: () => closeAndRefresh(),
       rerender: () => {
         overlay.remove()
-        showModulesModal()
+        void showModulesModal()
       },
     })
     panel.style.width = 'min(980px, calc(100vw - 20px))'
 
     const overlay = mountModal(panel)
     overlay.addEventListener('pointerdown', (e) => {
-      if (e.target === overlay) overlay.remove()
+      if (e.target === overlay) closeAndRefresh()
     })
   }
 

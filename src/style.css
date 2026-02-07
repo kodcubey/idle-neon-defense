@@ -107,6 +107,8 @@ body {
   align-items: flex-start;
   justify-content: center;
   padding-top: 60px;
+  padding-bottom: 60px;
+  overflow-y: auto;
   background: color-mix(in srgb, var(--bg) 55%, transparent);
   backdrop-filter: blur(6px);
 }

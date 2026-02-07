@@ -68,8 +68,8 @@ export function applyMetaToState(current: GameState, meta: MetaSaveV1): GameStat
 
   return {
     ...current,
-    // Never let cloud meta reduce meta-currencies locally.
-    points: metaPoints == null ? current.points : Math.max(current.points, metaPoints),
+    // Points are spendable; applyCloudMetaToState() decides whether to trust cloud.
+    points: metaPoints == null ? current.points : Math.max(0, Math.floor(metaPoints)),
     prestigePoints: metaPrestige == null ? current.prestigePoints : Math.max(current.prestigePoints, metaPrestige),
     rewardedAdNextEligibleUTC: metaRewardNext == null ? current.rewardedAdNextEligibleUTC : Math.max(current.rewardedAdNextEligibleUTC, metaRewardNext),
     towerMetaUpgrades: nextMetaUpgrades,
@@ -83,6 +83,24 @@ export function applyMetaToState(current: GameState, meta: MetaSaveV1): GameStat
         ? Math.max(1, Math.floor(meta.moduleSlotsUnlocked))
         : current.moduleSlotsUnlocked,
   }
+}
+
+export function applyCloudMetaToState(current: GameState, cloud: CloudMeta): GameState {
+  const next = applyMetaToState(current, cloud.meta)
+
+  const cloudTs = typeof cloud.clientUpdatedAtUTC === 'number' && Number.isFinite(cloud.clientUpdatedAtUTC) ? cloud.clientUpdatedAtUTC : 0
+  const localTs = typeof current.lastSaveTimestampUTC === 'number' && Number.isFinite(current.lastSaveTimestampUTC) ? current.lastSaveTimestampUTC : 0
+
+  // Points (Paladyum) are spendable; cloud can legitimately reduce them.
+  // Only trust cloud points when the cloud doc is at least as new as the local snapshot.
+  if (cloudTs >= localTs) {
+    const p = cloud.meta?.points
+    if (typeof p === 'number' && Number.isFinite(p)) {
+      ;(next as any).points = Math.max(0, Math.floor(p))
+    }
+  }
+
+  return next
 }
 
 type SaveDocV1 = {
@@ -100,6 +118,11 @@ export type FirebaseSyncStatus = {
   uid: string | null
 }
 
+export type CloudMeta = {
+  meta: MetaSaveV1
+  clientUpdatedAtUTC: number
+}
+
 export type FirebaseSync = {
   getStatus: () => FirebaseSyncStatus
   onAuthChanged: (cb: (s: FirebaseSyncStatus) => void) => () => void
@@ -109,7 +132,7 @@ export type FirebaseSync = {
   signUpEmail: (email: string, password: string) => Promise<void>
   signInEmail: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
-  downloadMeta: () => Promise<MetaSaveV1 | null>
+  downloadMeta: () => Promise<CloudMeta | null>
   uploadMetaFromState: (snapshot: GameState) => Promise<void>
 }
 
@@ -320,14 +343,16 @@ export function createFirebaseSync(): FirebaseSync {
       if (data.v !== 1) throw new Error('Unsupported save version')
       if (data.game !== 'neon-grid') throw new Error('Invalid save document')
 
+      const ts = typeof data.clientUpdatedAtUTC === 'number' && Number.isFinite(data.clientUpdatedAtUTC) ? data.clientUpdatedAtUTC : 0
+
       // New format: meta-only.
       if (data.meta && typeof data.meta === 'object') {
-        return data.meta as MetaSaveV1
+        return { meta: data.meta as MetaSaveV1, clientUpdatedAtUTC: ts }
       }
 
       // Back-compat: if an older doc stored full state, derive meta from it.
       if (data.state && typeof data.state === 'object') {
-        return extractMetaFromState(data.state as GameState)
+        return { meta: extractMetaFromState(data.state as GameState), clientUpdatedAtUTC: ts }
       }
 
       throw new Error('Invalid save payload')
@@ -347,25 +372,23 @@ export function createFirebaseSync(): FirebaseSync {
         meta,
       }
 
-      // Monotonic update for meta currencies: never decrease points.
+      // Prevent stale local snapshots from overwriting newer cloud data.
       await runTransaction(db(), async (tx) => {
         const ref = saveDocRef(user!.uid)
         const snap = await tx.get(ref)
 
-        let existingPoints: number | null = null
         let existingRewardNext: number | null = null
+        let existingUpdatedAt: number | null = null
         if (snap.exists()) {
           const data = snap.data() as Partial<SaveDocV1>
-          const p = (data as any)?.meta?.points
-          if (typeof p === 'number' && Number.isFinite(p)) existingPoints = Math.max(0, p)
-
           const rn = (data as any)?.meta?.rewardedAdNextEligibleUTC
           if (typeof rn === 'number' && Number.isFinite(rn)) existingRewardNext = Math.max(0, rn)
+
+          const u = (data as any)?.clientUpdatedAtUTC
+          if (typeof u === 'number' && Number.isFinite(u)) existingUpdatedAt = u
         }
 
-        if (existingPoints != null) {
-          payload.meta.points = Math.max(payload.meta.points ?? 0, existingPoints)
-        }
+        if (existingUpdatedAt != null && existingUpdatedAt > payload.clientUpdatedAtUTC) return
 
         if (existingRewardNext != null) {
           const cur = payload.meta.rewardedAdNextEligibleUTC
