@@ -1,12 +1,22 @@
 /* Minimal Service Worker to enable installability (PWA). */
-const CACHE = 'neon-grid-pwa-v2'
+const CACHE = 'neon-grid-pwa-v4'
 
 self.addEventListener('install', (event) => {
   self.skipWaiting()
   event.waitUntil(
     caches
       .open(CACHE)
-      .then((cache) => cache.addAll(['/', '/index.html', '/manifest.webmanifest', '/favicon.svg']))
+      .then((cache) =>
+        cache.addAll([
+          '/',
+          '/index.html',
+          '/manifest.webmanifest',
+          '/manifest.json',
+          '/favicon.svg',
+          '/icons/icon-192.png',
+          '/icons/icon-512.png',
+        ])
+      )
       .catch(() => {})
   )
 })
