@@ -1,6 +1,6 @@
 {
-  "name": "Idle Neon Defense",
-  "short_name": "Neon Defense",
+  "name": "Idle Tower Defense",
+  "short_name": "Idle Tower Defense",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
