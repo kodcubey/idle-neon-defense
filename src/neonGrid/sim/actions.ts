@@ -14,18 +14,20 @@ export function applyTowerUpgrade(args: {
   const cur = getUpgradeLevel(state, key)
   const maxL = upgradeMaxLevel(key, cfg)
   if (cur >= maxL) return { ok: false, state: args.state }
-  const growth = cfg.economy.upgradeCostGrowth
 
   const buyCountRaw = args.amount === 'max' ? maxAffordableUpgrades(cur, state.gold, cfg, key, maxL) : args.amount
   const buyCount = Math.min(buyCountRaw, Math.max(0, maxL - cur))
   if (buyCount <= 0) return { ok: false, state: args.state }
 
-  const firstCost = upgradeCost(key, cur, cfg)
-  // cost for next 'buyCount' levels starting at cur: geometric series from L=cur..cur+buyCount-1
-  const cost = firstCost * (1 - Math.pow(growth, buyCount)) / (1 - growth)
-  if (state.gold < cost) return { ok: false, state: args.state }
+  // Sum discretely to stay consistent with maxAffordableUpgrades (and avoid float edge cases).
+  let total = 0
+  for (let i = 0; i < buyCount; i++) {
+    total += upgradeCost(key, cur + i, cfg)
+    if (!Number.isFinite(total)) return { ok: false, state: args.state }
+  }
+  if (state.gold < total) return { ok: false, state: args.state }
 
-  state.gold -= cost
+  state.gold -= total
   setUpgradeLevel(state, key, cur + buyCount)
 
   // BaseHP track increases max; current HP is clamped to new max.

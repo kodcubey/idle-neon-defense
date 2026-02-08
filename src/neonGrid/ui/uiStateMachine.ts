@@ -1013,10 +1013,27 @@ export function createUIStateMachine(args: UIArgs) {
       const b10 = btn('+10', 'btn')
       const bM = btn('+Max', 'btn')
 
+      const points = Math.max(0, Number((lastState as any)?.points ?? 0))
+      const canAffordMetaN = (n: number) => {
+        if (atMax) return false
+        let total = 0
+        for (let i = 0; i < n; i++) {
+          const L = level + i
+          if (L >= maxL) return false
+          total += metaUpgradeCostPoints(key, L, config)
+          if (!Number.isFinite(total) || points < total) return false
+        }
+        return true
+      }
+
       if (atMax) {
         b1.disabled = true
         b10.disabled = true
         bM.disabled = true
+      } else {
+        b1.disabled = !canAffordMetaN(1)
+        b10.disabled = !canAffordMetaN(10)
+        bM.disabled = !canAffordMetaN(1)
       }
 
       const doBuy = async (amt: 1 | 10 | 'max', elBtn: HTMLButtonElement) => {
@@ -1682,10 +1699,28 @@ export function createUIStateMachine(args: UIArgs) {
     const b10 = btn('+10', 'btn')
     const bM = btn('+Max', 'btn')
 
+    const gold = Math.max(0, Number(lastState?.gold ?? 0))
+    const canAffordN = (n: number) => {
+      if (atMax) return false
+      let total = 0
+      for (let i = 0; i < n; i++) {
+        const L = level + i
+        if (L >= maxL) return false
+        total += upgradeCost(key, L, config)
+        if (!Number.isFinite(total) || gold < total) return false
+      }
+      return true
+    }
+
     if (atMax) {
       b1.disabled = true
       b10.disabled = true
       bM.disabled = true
+    } else {
+      b1.disabled = !canAffordN(1)
+      b10.disabled = !canAffordN(10)
+      // "Max" buys as many as possible, so enable if at least one is affordable.
+      bM.disabled = !canAffordN(1)
     }
 
     b1.onclick = () => {
@@ -2089,7 +2124,18 @@ export function createUIStateMachine(args: UIArgs) {
         const level = Math.max(1, Math.floor(lastState.moduleLevels[def.id] ?? 1))
         const cost = moduleUpgradeCostPoints(level, config)
 
+        const points = Math.max(0, Number((lastState as any)?.points ?? 0))
+        const canAffordModuleN = (n: number) => {
+          let total = 0
+          for (let i = 0; i < n; i++) {
+            total += moduleUpgradeCostPoints(level + i, config)
+            if (!Number.isFinite(total) || points < total) return false
+          }
+          return true
+        }
+
         const b1 = btn('+1', 'btn')
+        b1.disabled = !canAffordModuleN(1)
         b1.onclick = () => {
           void (async () => {
             const doLocal = () => {
@@ -2128,6 +2174,7 @@ export function createUIStateMachine(args: UIArgs) {
           })()
         }
         const b10 = btn('+10', 'btn')
+        b10.disabled = !canAffordModuleN(10)
         b10.onclick = () => {
           void (async () => {
             const doLocal = () => {
@@ -2166,6 +2213,7 @@ export function createUIStateMachine(args: UIArgs) {
           })()
         }
         const bM = btn('+Max', 'btn')
+        bM.disabled = !canAffordModuleN(1)
         bM.onclick = () => {
           void (async () => {
             const doLocal = () => {
