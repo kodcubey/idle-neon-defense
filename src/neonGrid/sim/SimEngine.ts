@@ -1,4 +1,5 @@
 import type { GameConfig, GameState, RunSummary, WaveReport, WaveSnapshot } from '../types'
+import { applyWaveCompleteToDailyContracts } from './contracts'
 import {
   aggregateModules,
   baseDmg,
@@ -631,6 +632,14 @@ export class SimEngine {
     // Paladyum (points) is awarded deterministically at wave end.
     this._state.points += report.rewardPoints
     this._state.stats.paladyumDroppedThisRun = Math.max(0, Math.floor((this._state.stats.paladyumDroppedThisRun ?? 0) + report.rewardPoints))
+
+    // Daily contracts progress (deterministic; resets daily at 00:00 UTC).
+    this._state = applyWaveCompleteToDailyContracts({
+      state: this._state,
+      report,
+      config: this.cfg,
+      nowUTC: Date.now(),
+    })
 
     if (this._state.baseHP <= 0) {
       const sum: RunSummary = {

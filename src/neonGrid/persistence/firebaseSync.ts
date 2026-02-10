@@ -1,4 +1,5 @@
-import type { GameState } from '../types'
+import type { DailyContractsState, GameState } from '../types'
+import { mergeDailyContracts } from '../sim/contracts'
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app'
 import {
   getAuth,
@@ -22,6 +23,7 @@ export type MetaSaveV1 = {
   moduleLevels: GameState['moduleLevels']
   modulesEquipped: GameState['modulesEquipped']
   moduleSlotsUnlocked?: number
+  dailyContracts?: DailyContractsState
 }
 
 export function extractMetaFromState(state: GameState): MetaSaveV1 {
@@ -36,6 +38,7 @@ export function extractMetaFromState(state: GameState): MetaSaveV1 {
     moduleLevels: { ...state.moduleLevels },
     modulesEquipped: { ...state.modulesEquipped },
     moduleSlotsUnlocked: state.moduleSlotsUnlocked,
+    dailyContracts: state.dailyContracts ? JSON.parse(JSON.stringify(state.dailyContracts)) : undefined,
   }
 }
 
@@ -77,6 +80,7 @@ export function applyMetaToState(current: GameState, meta: MetaSaveV1): GameStat
       typeof meta.moduleSlotsUnlocked === 'number' && Number.isFinite(meta.moduleSlotsUnlocked)
         ? Math.max(1, Math.floor(meta.moduleSlotsUnlocked))
         : current.moduleSlotsUnlocked,
+    dailyContracts: mergeDailyContracts(current.dailyContracts, meta.dailyContracts) ?? current.dailyContracts,
   }
 }
 

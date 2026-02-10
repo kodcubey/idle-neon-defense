@@ -26,6 +26,7 @@ import {
 } from '../sim/deterministic'
 import { calcBaseHPMax } from '../sim/actions'
 import { metaUpgradeCostPoints, moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from '../sim/costs'
+import { claimDailyContract, getDailyContracts, type DailyContractView } from '../sim/contracts'
 
 export type UIScreen = 'boot' | 'menu' | 'login' | 'hud' | 'modules' | 'settings' | 'stats' | 'offline'
 
@@ -534,7 +535,7 @@ export function createUIStateMachine(args: UIArgs) {
   function renderMenu() {
     const layout = el('div', 'ng-menu-layout')
 
-    const panel = el('div', 'panel ng-menu ng-menu-sidebar')
+    const panel = el('div', 'panel ng-menu')
 
     const header = el('div', 'panel-header')
     const title = el('div', 'ng-menu-title')
@@ -546,8 +547,6 @@ export function createUIStateMachine(args: UIArgs) {
     header.appendChild(ver)
 
     const body = el('div', 'panel-body')
-
-    const content = el('div', 'ng-menu-content')
 
     const authLine = (() => {
       const st = firebaseSync?.getStatus()
@@ -581,7 +580,7 @@ export function createUIStateMachine(args: UIArgs) {
       return balances
     })()
 
-    const row = el('div', 'stack ng-menu-actions')
+    const row = el('div', 'ng-menu-actions')
     row.style.marginTop = '12px'
 
     const menuBtn = (label: string, iconSVG: string, iconTone: 'cyan' | 'magenta' | 'lime', extraClass?: string) => {
@@ -647,6 +646,15 @@ export function createUIStateMachine(args: UIArgs) {
         <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z" stroke="currentColor" stroke-width="2"/>
         <path d="M12 10.5V17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
         <path d="M12 7.5h.01" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+      </svg>
+    `
+
+    const iconClipboard = `
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M9 3h6v3H9V3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M7 6h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M8 11h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M8 15h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
       </svg>
     `
 
@@ -742,19 +750,25 @@ export function createUIStateMachine(args: UIArgs) {
       void showMetaUpgradesModal()
     }
 
-    row.append(newRun, metaUpg, modules, tower, stats, settings, how)
+    const contracts = menuBtn('Contracts', iconClipboard, 'cyan')
+    contracts.onclick = () => {
+      if (game) game.setPaused(true)
+      void showDailyContractsModal()
+    }
 
-    const card = el('div', 'panel')
-    card.style.marginTop = '12px'
+    row.append(newRun, metaUpg, contracts, modules, tower, stats, settings, how)
+
+    const about = el('div', 'panel')
+    about.style.marginTop = '12px'
     const ch = el('div', 'panel-header')
     ch.textContent = 'No RNG Mode'
     const cb = el('div', 'panel-body')
     cb.innerHTML = `
-      <div class="muted">• Spawn order, enemy types, rewards and penalties are computed via deterministic formulas.</div>
-      <div class="muted">• If you miss the Kill Ratio target: reward multiplier drops, and escapes deal extra damage to the base.</div>
+      <div class="muted">• Deterministic formulas: no drops, no luck.</div>
+      <div class="muted">• Miss KR target: reward multiplier drops, escapes can damage Base.</div>
       <div class="muted">• Each wave lasts exactly ${config.sim.waveDurationSec.toFixed(1)}s.</div>
     `
-    card.append(ch, cb)
+    about.append(ch, cb)
 
     const authPanel = (() => {
       const st = firebaseSync?.getStatus()
@@ -875,22 +889,21 @@ export function createUIStateMachine(args: UIArgs) {
       return p
     })()
 
+    const topInfo = el('div')
     if (authLine) {
       authLine.style.marginTop = '10px'
-      body.appendChild(authLine)
+      topInfo.appendChild(authLine)
     }
+    desc.style.marginTop = '6px'
+    topInfo.appendChild(desc)
+    if (balances) topInfo.appendChild(balances)
 
-    body.appendChild(desc)
-    if (balances) body.appendChild(balances)
-    body.append(row)
-
-    // Right-side content (scrolls); keep existing cards/panels.
-    content.append(card)
-    if (authPanel) content.appendChild(authPanel)
-    if (signedInPanel) content.appendChild(signedInPanel)
+    body.append(topInfo, row, about)
+    if (authPanel) body.appendChild(authPanel)
+    if (signedInPanel) body.appendChild(signedInPanel)
 
     panel.append(header, body)
-    layout.append(panel, content)
+    layout.appendChild(panel)
     center.appendChild(layout)
   }
 
@@ -1243,6 +1256,41 @@ export function createUIStateMachine(args: UIArgs) {
     barOuter.appendChild(fill)
 
     body.append(line, barOuter)
+
+    // Daily contracts progress (in-game display)
+    const nowUTC = Date.now()
+    const contractsInfo = getDailyContracts({ state, config, nowUTC })
+    if (contractsInfo.state !== state && game) {
+      lastState = contractsInfo.state
+      game.setSnapshot(contractsInfo.state, 'soft')
+    }
+
+    const lang = (lastState?.settings as any)?.language === 'tr' ? 'tr' : 'en'
+    const contractsBox = el('div', 'hud-contracts')
+
+    const doneCount = contractsInfo.contracts.filter((c) => c.completed).length
+    const claimedCount = contractsInfo.contracts.filter((c) => c.claimed).length
+    const contractsTitle = el('div', 'muted')
+    contractsTitle.style.fontWeight = '900'
+    contractsTitle.style.marginTop = '8px'
+    contractsTitle.innerHTML = `${lang === 'tr' ? 'Günlük Kontratlar' : 'Daily Contracts'}: <span class="mono">${doneCount}/${contractsInfo.contracts.length}</span> ${lang === 'tr' ? 'tamamlandı' : 'completed'} • <span class="mono">${claimedCount}/${contractsInfo.contracts.length}</span> ${lang === 'tr' ? 'alındı' : 'claimed'}`
+
+    const list = el('div', 'muted')
+    list.style.fontSize = '12px'
+    list.style.marginTop = '6px'
+
+    for (const c of contractsInfo.contracts) {
+      const line = el('div')
+      const name = lang === 'tr' ? c.titleTR : c.titleEN
+      const status = c.claimed ? (lang === 'tr' ? 'ALINDI' : 'CLAIMED') : c.completed ? (lang === 'tr' ? 'HAZIR' : 'READY') : ''
+      const statusColor = c.claimed ? 'var(--muted)' : c.completed ? 'var(--neon-lime)' : 'var(--muted)'
+      const statusHtml = status ? ` <span class="mono" style="color:${statusColor}">[${status}]</span>` : ''
+      line.innerHTML = `• ${name}: <span class="mono">${formatNumber(c.progress, lastState?.settings.numberFormat ?? 'suffix')}</span>/<span class="mono">${formatNumber(c.goal, lastState?.settings.numberFormat ?? 'suffix')}</span>${statusHtml}`
+      list.appendChild(line)
+    }
+
+    contractsBox.append(contractsTitle, list)
+    body.appendChild(contractsBox)
     topPanel.append(bar, body)
     top.appendChild(topPanel)
 
@@ -2775,8 +2823,7 @@ export function createUIStateMachine(args: UIArgs) {
         <div style="font-weight:900; margin-bottom:6px">Economy: Gold & Paladyum</div>
         <div>• <b>Gold</b>: used for in-run upgrades (damage, fire rate, range, etc.).</div>
         <div>• <b>Paladyum</b>: permanent meta currency (Meta Upgrades, modules, slot unlocks).</div>
-        <div>• Paladyum is not granted as a single end-of-wave bundle; it drops from some enemy kills.</div>
-        <div>• When a drop happens, you will see <b>+1</b> above the dead enemy.</div>
+        <div>• Paladyum is granted deterministically at wave end (affected by your performance and modules).</div>
       </div>
 
       <div style="height:10px"></div>
@@ -2829,6 +2876,108 @@ export function createUIStateMachine(args: UIArgs) {
     panel.style.width = 'min(920px, calc(100vw - 20px))'
 
     const overlay = mountModal(panel)
+    overlay.addEventListener('pointerdown', (e) => {
+      if (e.target === overlay) overlay.remove()
+    })
+  }
+
+  async function showDailyContractsModal() {
+    if (!game || !lastState) return
+
+    const nowUTC = Date.now()
+    const info = getDailyContracts({ state: lastState, config, nowUTC })
+    if (info.state !== lastState) {
+      lastState = info.state
+      game.setSnapshot(info.state, 'soft')
+    }
+
+    const modal = el('div', 'panel')
+    modal.style.position = 'absolute'
+    modal.style.left = '50%'
+    modal.style.top = '10%'
+    modal.style.transform = 'translateX(-50%)'
+    modal.style.width = 'min(820px, calc(100vw - 24px))'
+    modal.style.pointerEvents = 'auto'
+
+    const h = el('div', 'panel-header')
+    h.textContent = 'DAILY CONTRACTS'
+
+    const b = el('div', 'panel-body')
+    b.style.lineHeight = '1.45'
+
+    const note = el('div', 'muted')
+    note.textContent = 'Resets at 00:00 UTC. Deterministic, no RNG.'
+    note.style.marginBottom = '10px'
+    b.appendChild(note)
+
+    let overlay: HTMLDivElement
+
+    const renderContract = (c: DailyContractView) => {
+      const card = el('div', 'panel')
+      card.style.marginBottom = '10px'
+
+      const ch = el('div', 'panel-header')
+      ch.textContent = c.titleEN
+
+      const cb = el('div', 'panel-body')
+
+      const desc = el('div', 'muted')
+      desc.textContent = c.descEN
+
+      const prog = el('div', 'muted')
+      prog.style.marginTop = '6px'
+      prog.innerHTML = `Progress: <span class="mono">${formatNumber(c.progress, lastState!.settings.numberFormat)}</span> / <span class="mono">${formatNumber(c.goal, lastState!.settings.numberFormat)}</span>`
+
+      const reward = el('div', 'muted')
+      reward.style.marginTop = '6px'
+      reward.innerHTML = `Reward: <span class="mono">${formatPaladyumInt(c.rewardPoints)}</span> Paladyum`
+
+      const row = el('div', 'stack')
+      row.style.marginTop = '10px'
+
+      const claimBtn = btn(c.claimed ? 'Claimed' : c.completed ? 'Claim' : 'Incomplete', 'btn btn-primary')
+      ;(claimBtn as HTMLButtonElement).disabled = c.claimed || !c.completed
+
+      claimBtn.onclick = () => {
+        if (!game || !lastState) return
+        const res = claimDailyContract({
+          state: lastState,
+          config,
+          nowUTC: Date.now(),
+          contractId: c.id,
+        })
+        if (!res.claimed) return
+
+        lastState = res.state
+        game.setSnapshot(res.state, 'soft')
+
+        // If signed in, upload immediately so contracts continue across devices.
+        const st = firebaseSync?.getStatus()
+        const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
+        if (canCloud) {
+          void firebaseSync!.uploadMetaFromState(game.getSnapshot()).catch(() => {
+            // ignore
+          })
+        }
+
+        overlay.remove()
+        void showDailyContractsModal()
+      }
+
+      row.appendChild(claimBtn)
+      cb.append(desc, prog, reward, row)
+      card.append(ch, cb)
+      return card
+    }
+
+    for (const c of info.contracts) b.appendChild(renderContract(c))
+
+    const close = btn('Close', 'btn')
+    close.onclick = () => overlay.remove()
+    b.appendChild(close)
+
+    modal.append(h, b)
+    overlay = mountModal(modal)
     overlay.addEventListener('pointerdown', (e) => {
       if (e.target === overlay) overlay.remove()
     })

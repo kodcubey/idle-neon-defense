@@ -227,41 +227,15 @@ input:focus {
   opacity: 0.55;
 }
 
-/* Menu layout: sticky left sidebar + scrollable right content (within .ui-center scroll) */
+/* Menu layout: centered hero panel (cleaner, less "random" placement) */
 .ng-menu-layout {
   display: flex;
-  align-items: flex-start;
-  justify-content: flex-start;
-  gap: 12px;
+  justify-content: center;
   padding: 18px 10px;
 }
 
-.ng-menu-sidebar {
-  position: sticky;
-  top: 18px;
-  flex: 0 0 auto;
-  width: min(440px, calc(100vw - 36px));
-}
-
-.ng-menu-content {
-  flex: 1;
-  min-width: 0;
-  width: min(620px, calc(100vw - 36px));
-}
-
-@media (max-width: 900px) {
-  .ng-menu-layout {
-    flex-direction: column;
-    gap: 10px;
-    padding: 14px 10px;
-  }
-  .ng-menu-sidebar {
-    position: static;
-    width: min(560px, calc(100vw - 24px));
-  }
-  .ng-menu-content {
-    width: min(560px, calc(100vw - 24px));
-  }
+.panel.ng-menu {
+  width: min(860px, calc(100vw - 24px));
 }
 
 .ng-menu-title {
@@ -275,7 +249,8 @@ input:focus {
 }
 
 .ng-menu-actions {
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -296,6 +271,16 @@ input:focus {
       color-mix(in srgb, rgba(14, 18, 38, 0.65) 75%, transparent),
       rgba(14, 18, 38, 0.35)
     );
+}
+
+@media (max-width: 520px) {
+  .ng-menu-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+.hud-contracts {
+  padding: 0 8px;
 }
 
 .ng-menu-actions .btn::before {

@@ -7,7 +7,7 @@
   <!-- Primary Meta Tags -->
   <title>Idle Tower Defense - Deterministic Strategy Game | Play Free Online</title>
   <meta name="title" content="Idle Tower Defense - Deterministic Strategy Game | Play Free Online">
-  <meta name="description" content="Experience the next generation of idle tower defense. No RNG, pure strategy. Build your neon grid defense, upgrade towers, and progress offline. Play now for free in your browser.">
+  <meta name="description" content="Experience the next generation of idle tower defense. No RNG, pure strategy. Build your neon grid defense and upgrade towers. Play now for free in your browser.">
   <meta name="keywords" content="idle tower defense, tower defense game, strategy game, browser game, no RNG, deterministic game, free online game, idle game, neon defense, web game">
   <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
   <meta name="language" content="English">
@@ -49,7 +49,7 @@
     "@context": "https://schema.org",
     "@type": "VideoGame",
     "name": "Idle Tower Defense",
-    "description": "A deterministic idle tower defense game with no RNG. Build your neon grid defense, upgrade towers strategically, and progress offline.",
+    "description": "A deterministic idle tower defense game with no RNG. Build your neon grid defense and upgrade towers strategically.",
     "url": "https://idletowerdefense.com/",
     "image": "https://idletowerdefense.com/og-image.png",
     "genre": ["Strategy", "Tower Defense", "Idle Game"],
@@ -128,7 +128,7 @@
 
     /* Header */
     header {
-      padding: 24px 0;
+      padding: 16px 0;
       border-bottom: 1px solid var(--border-subtle);
       backdrop-filter: blur(10px);
       background: rgba(7, 8, 18, 0.8);
@@ -141,6 +141,7 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 16px;
     }
 
     .logo {
@@ -156,7 +157,7 @@
 
     /* Hero Section */
     .hero {
-      padding: 120px 0 80px;
+      padding: 88px 0 56px;
       text-align: center;
     }
 
@@ -188,7 +189,7 @@
       gap: 16px;
       justify-content: center;
       flex-wrap: wrap;
-      margin-bottom: 60px;
+      margin-bottom: 40px;
     }
 
     .btn {
@@ -230,14 +231,14 @@
 
     /* Features Section */
     .features {
-      padding: 80px 0;
+      padding: 56px 0;
     }
 
     .section-title {
       text-align: center;
       font-size: clamp(32px, 4vw, 48px);
       font-weight: 700;
-      margin-bottom: 60px;
+      margin-bottom: 40px;
       letter-spacing: -1px;
     }
 
@@ -288,7 +289,7 @@
 
     /* Stats Section */
     .stats {
-      padding: 80px 0;
+      padding: 56px 0;
       background: var(--bg-panel);
       border-top: 1px solid var(--border-subtle);
       border-bottom: 1px solid var(--border-subtle);
@@ -318,14 +319,14 @@
 
     /* How It Works */
     .how-it-works {
-      padding: 80px 0;
+      padding: 56px 0;
     }
 
     .steps-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
       gap: 40px;
-      margin-top: 60px;
+      margin-top: 40px;
     }
 
     .step {
@@ -359,7 +360,7 @@
 
     /* Deep Dive / Strategy */
     .deep-dive {
-      padding: 80px 0;
+      padding: 56px 0;
       background: var(--bg-panel);
       border-top: 1px solid var(--border-subtle);
       border-bottom: 1px solid var(--border-subtle);
@@ -368,7 +369,7 @@
     .section-subtitle {
       text-align: center;
       max-width: 860px;
-      margin: -40px auto 56px;
+      margin: -24px auto 40px;
       color: var(--text-secondary);
       font-size: 18px;
       line-height: 1.6;
@@ -437,9 +438,40 @@
       box-shadow: var(--glow-cyan);
     }
 
+    /* FAQ */
+    .faq {
+      padding: 56px 0;
+    }
+
+    .faq-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+    }
+
+    .faq-item {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 20px;
+    }
+
+    .faq-item h3 {
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: -0.2px;
+      margin-bottom: 10px;
+    }
+
+    .faq-item p {
+      color: var(--text-secondary);
+      font-size: 15px;
+      line-height: 1.65;
+    }
+
     /* CTA Section */
     .cta-section {
-      padding: 100px 0;
+      padding: 72px 0;
       text-align: center;
     }
 
@@ -458,45 +490,37 @@
 
     /* Footer */
     footer {
-      padding: 60px 0 40px;
+      padding: 48px 0 32px;
       border-top: 1px solid var(--border-subtle);
     }
 
-    .footer-content {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 40px;
-      margin-bottom: 40px;
+    .footer-links {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 14px;
+      margin-bottom: 24px;
     }
 
-    .footer-section h4 {
-      font-size: 16px;
-      font-weight: 700;
-      margin-bottom: 16px;
-      color: var(--text-primary);
-    }
-
-    .footer-section ul {
-      list-style: none;
-    }
-
-    .footer-section ul li {
-      margin-bottom: 12px;
-    }
-
-    .footer-section a {
+    .footer-links a {
       color: var(--text-secondary);
       text-decoration: none;
-      transition: color 0.3s ease;
+      font-weight: 600;
+      font-size: 14px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid transparent;
+      transition: color 0.3s ease, border-color 0.3s ease;
     }
 
-    .footer-section a:hover {
+    .footer-links a:hover {
       color: var(--neon-cyan);
+      border-color: var(--border-subtle);
     }
 
     .footer-bottom {
       text-align: center;
-      padding-top: 32px;
+      padding-top: 24px;
       border-top: 1px solid var(--border-subtle);
       color: var(--text-muted);
       font-size: 14px;
@@ -505,17 +529,18 @@
     /* Responsive */
     @media (max-width: 768px) {
       .hero {
-        padding: 80px 0 60px;
+        padding: 64px 0 48px;
       }
 
       .features,
       .stats,
-      .how-it-works {
-        padding: 60px 0;
+      .how-it-works,
+      .deep-dive {
+        padding: 48px 0;
       }
 
       .cta-section {
-        padding: 80px 0;
+        padding: 64px 0;
       }
 
       .features-grid,
@@ -525,6 +550,10 @@
 
       .stats-grid {
         gap: 32px;
+      }
+
+      .faq {
+        padding: 48px 0;
       }
     }
   </style>
@@ -668,7 +697,7 @@
             <li>Place towers on the neon grid; aim for stability early.</li>
             <li>Each wave ends on a fixed timer; your performance is tracked via Kill Ratio and a required Threshold.</li>
             <li>If you fall below the threshold, your reward multiplier drops—balance your build to prevent that.</li>
-            <li>Offline progress is deterministic too: results are computed from elapsed time when you return.</li>
+            <li>Progress is consistent and repeatable: the same decisions produce the same outcomes.</li>
           </ul>
         </div>
 
@@ -708,11 +737,40 @@
     </div>
   </section>
 
+  <!-- FAQ -->
+  <section id="faq" class="faq">
+    <div class="container">
+      <h2 class="section-title">FAQ</h2>
+      <div class="faq-grid">
+        <div class="faq-item">
+          <h3>Is it really 0 RNG?</h3>
+          <p>Yes. Outcomes are deterministic: the same decisions lead to the same results.</p>
+        </div>
+        <div class="faq-item">
+          <h3>Do you have offline progress?</h3>
+          <p>Not currently. Offline progression is intentionally disabled right now.</p>
+        </div>
+        <div class="faq-item">
+          <h3>How do saves work?</h3>
+          <p>You can play as a guest (local save) or sign in for optional cloud sync across devices.</p>
+        </div>
+        <div class="faq-item">
+          <h3>What are Daily Contracts?</h3>
+          <p>Deterministic daily goals that track progress as you complete waves. Claiming them awards points.</p>
+        </div>
+        <div class="faq-item">
+          <h3>What’s the best way to improve?</h3>
+          <p>Change one variable at a time (modules or upgrade priority), compare results, and iterate.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- Final CTA -->
   <section class="cta-section">
     <div class="container">
       <h2>Ready to Dominate the Grid?</h2>
-      <p>Join thousands of players mastering deterministic tower defense strategy.</p>
+      <p>Join other players mastering deterministic tower defense strategy.</p>
       <a href="/game/" @click.prevent="goGame" class="btn btn-primary" style="font-size: 20px; padding: 18px 40px;">Play Free Now</a>
     </div>
   </section>
@@ -720,31 +778,11 @@
   <!-- Footer -->
   <footer>
     <div class="container">
-      <div class="footer-content">
-        <div class="footer-section">
-          <h4>Game</h4>
-          <ul>
-            <li><a href="/game/" @click.prevent="goGame">Play Now</a></li>
-            <li><a href="#features">Features</a></li>
-            <li><a href="#how-it-works">How It Works</a></li>
-          </ul>
-        </div>
-        <div class="footer-section">
-          <h4>Resources</h4>
-          <ul>
-            <li><a href="/guide">Strategy Guide</a></li>
-            <li><a href="/updates">Updates</a></li>
-            <li><a href="/faq">FAQ</a></li>
-          </ul>
-        </div>
-        <div class="footer-section">
-          <h4>Legal</h4>
-          <ul>
-            <li><a href="/privacy">Privacy Policy</a></li>
-            <li><a href="/terms">Terms of Service</a></li>
-            <li><a href="/contact">Contact</a></li>
-          </ul>
-        </div>
+      <div class="footer-links" aria-label="Footer">
+        <a href="/game/" @click.prevent="goGame">Play Now</a>
+        <a href="#features">Features</a>
+        <a href="#how-it-works">How It Works</a>
+        <a href="#faq">FAQ</a>
       </div>
       <div class="footer-bottom">
         <p>&copy; 2026 Idle Tower Defense. All rights reserved. Built with passion for strategy gaming.</p>

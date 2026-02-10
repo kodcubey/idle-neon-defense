@@ -268,6 +268,15 @@ export type Stats = {
   paladyumDroppedThisRun: number
 }
 
+export type DailyContractsState = {
+  day: number
+  maxWaveCompleted: number
+  krStreak: number
+  bestKrStreak: number
+  pointsEarned: number
+  claimed: Record<string, boolean>
+}
+
 export type GameState = {
   version: number
   lastSaveTimestampUTC: number
@@ -322,6 +331,9 @@ export type GameState = {
   prestigePoints: number
   settings: Settings
   stats: Stats
+
+  // Daily deterministic contracts (resets at 00:00 UTC).
+  dailyContracts?: DailyContractsState
 }
 
 export type WaveSnapshot = {

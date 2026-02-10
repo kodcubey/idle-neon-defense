@@ -1,4 +1,5 @@
-import type { GameConfig, GameState, Settings, Stats } from '../types'
+import type { DailyContractsState, GameConfig, GameState, Settings, Stats } from '../types'
+import { dayIndexUTC } from '../sim/deterministic'
 
 const STORAGE_KEY = 'neon-grid.save.v1'
 
@@ -84,6 +85,15 @@ export function createNewState(config: GameConfig, nowUTC: number): GameState {
     prestigePoints: 0,
     settings: defaultSettings(),
     stats: defaultStats(),
+
+    dailyContracts: {
+      day: dayIndexUTC(nowUTC),
+      maxWaveCompleted: 0,
+      krStreak: 0,
+      bestKrStreak: 0,
+      pointsEarned: 0,
+      claimed: {},
+    },
   }
 }
 
@@ -109,6 +119,27 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
     ...base,
     ...input,
     version: config.version,
+  }
+
+  // Daily contracts: ensure object and sanitize.
+  const today = dayIndexUTC(nowUTC)
+  const dcIn = (merged as any).dailyContracts as DailyContractsState | undefined
+  if (!dcIn || typeof dcIn !== 'object' || typeof dcIn.day !== 'number' || !Number.isFinite(dcIn.day) || Math.floor(dcIn.day) !== today) {
+    ;(merged as any).dailyContracts = { ...base.dailyContracts }
+  } else {
+    const claimedIn = (dcIn as any).claimed
+    const claimed: Record<string, boolean> = {}
+    if (claimedIn && typeof claimedIn === 'object') {
+      for (const [k, v] of Object.entries(claimedIn as any)) claimed[k] = !!v
+    }
+    ;(merged as any).dailyContracts = {
+      day: today,
+      maxWaveCompleted: typeof dcIn.maxWaveCompleted === 'number' && Number.isFinite(dcIn.maxWaveCompleted) ? Math.max(0, Math.floor(dcIn.maxWaveCompleted)) : 0,
+      krStreak: typeof dcIn.krStreak === 'number' && Number.isFinite(dcIn.krStreak) ? Math.max(0, Math.floor(dcIn.krStreak)) : 0,
+      bestKrStreak: typeof dcIn.bestKrStreak === 'number' && Number.isFinite(dcIn.bestKrStreak) ? Math.max(0, Math.floor(dcIn.bestKrStreak)) : 0,
+      pointsEarned: typeof dcIn.pointsEarned === 'number' && Number.isFinite(dcIn.pointsEarned) ? Math.max(0, Math.floor(dcIn.pointsEarned)) : 0,
+      claimed,
+    }
   }
 
   // Paladyum / prestige are integer-only.
@@ -241,6 +272,8 @@ export function saveSnapshot(config: GameConfig, state: GameState) {
     prestigePoints: typeof state.prestigePoints === 'number' && Number.isFinite(state.prestigePoints) ? Math.max(0, Math.floor(state.prestigePoints)) : 0,
     settings: { ...state.settings },
     stats: { ...state.stats },
+
+    dailyContracts: state.dailyContracts ? JSON.parse(JSON.stringify(state.dailyContracts)) : undefined,
   }
 
   localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
