@@ -61,11 +61,15 @@ export async function createNeonGridApp(mount: NeonGridMount) {
 
       // Cloud sync: upload only when the run ends (game over).
       // Best-effort; errors can be handled via Settings actions.
-      void firebaseSync
-        .uploadMetaFromState(game.getSnapshot())
-        .catch(() => {
-          // ignore
-        })
+      const st = firebaseSync.getStatus()
+      const canCloud = st.configured && st.signedIn
+      if (canCloud) {
+        void firebaseSync
+          .uploadMetaFromState(game.getSnapshot())
+          .catch(() => {
+            // ignore
+          })
+      }
     },
   })
 

@@ -672,7 +672,6 @@ export function createUIStateMachine(args: UIArgs) {
     newRun.onclick = () => {
       void (async () => {
         if (!game) return
-        if (!requireLogin()) return
 
         const st = firebaseSync?.getStatus()
         const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
