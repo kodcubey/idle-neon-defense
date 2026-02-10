@@ -320,6 +320,26 @@ input:focus {
   min-width: 0;
 }
 
+.ng-menu-badge {
+  position: absolute;
+  right: 8px;
+  top: 7px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #e53935;
+  color: #ffffff;
+  font-weight: 900;
+  font-size: 12px;
+  line-height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 10px rgba(229, 57, 53, 0.35);
+  pointer-events: none;
+}
+
 .ng-icon-cyan {
   color: var(--neon-cyan);
 }

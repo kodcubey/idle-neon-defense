@@ -54,6 +54,8 @@ export function createUIStateMachine(args: UIArgs) {
   let initialCloudSyncInProgress = false
   let resetRequested = false
 
+  let refreshContractsBadgeGlobal: (() => void) | null = null
+
   let upgradesTab: 'attack' | 'defense' | 'utility' = 'attack'
 
   // In dev/HMR or accidental re-init, multiple UI layers can stack and swallow clicks.
@@ -751,9 +753,44 @@ export function createUIStateMachine(args: UIArgs) {
     }
 
     const contracts = menuBtn('Contracts', iconClipboard, 'cyan')
+    const contractsBadge = el('span', 'ng-menu-badge')
+    contractsBadge.style.display = 'none'
+    contracts.appendChild(contractsBadge)
+
+    const refreshContractsBadge = () => {
+      const snapshot = game ? game.getSnapshot() : lastState
+      if (!snapshot) {
+        contractsBadge.style.display = 'none'
+        contractsBadge.textContent = ''
+        return
+      }
+
+      const nowUTC = Date.now()
+      const info = getDailyContracts({ state: snapshot, config, nowUTC })
+      if (info.state !== snapshot) {
+        lastState = info.state
+        if (game) game.setSnapshot(info.state, 'soft')
+      }
+
+      const claimable = info.contracts.filter((c) => c.completed && !c.claimed).length
+      if (claimable > 0) {
+        contractsBadge.textContent = String(claimable)
+        contractsBadge.style.display = ''
+      } else {
+        contractsBadge.style.display = 'none'
+        contractsBadge.textContent = ''
+      }
+    }
+
+    refreshContractsBadgeGlobal = refreshContractsBadge
+
+    refreshContractsBadge()
     contracts.onclick = () => {
       if (game) game.setPaused(true)
-      void showDailyContractsModal()
+      void (async () => {
+        await showDailyContractsModal()
+        refreshContractsBadge()
+      })()
     }
 
     row.append(newRun, metaUpg, contracts, modules, tower, stats, settings, how)
@@ -2939,29 +2976,63 @@ export function createUIStateMachine(args: UIArgs) {
       ;(claimBtn as HTMLButtonElement).disabled = c.claimed || !c.completed
 
       claimBtn.onclick = () => {
-        if (!game || !lastState) return
-        const res = claimDailyContract({
-          state: lastState,
-          config,
-          nowUTC: Date.now(),
-          contractId: c.id,
-        })
-        if (!res.claimed) return
+        void (async () => {
+          const g = game
+          if (!g || !lastState) return
 
-        lastState = res.state
-        game.setSnapshot(res.state, 'soft')
+          const elBtn = claimBtn as HTMLButtonElement
+          if (elBtn.disabled) return
 
-        // If signed in, upload immediately so contracts continue across devices.
-        const st = firebaseSync?.getStatus()
-        const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
-        if (canCloud) {
-          void firebaseSync!.uploadMetaFromState(game.getSnapshot()).catch(() => {
-            // ignore
-          })
-        }
+          elBtn.disabled = true
+          const prevTxt = elBtn.textContent
+          elBtn.textContent = 'Claiming…'
 
-        overlay.remove()
-        void showDailyContractsModal()
+          try {
+            const res = claimDailyContract({
+              state: lastState,
+              config,
+              nowUTC: Date.now(),
+              contractId: c.id,
+            })
+            if (!res.claimed) {
+              elBtn.textContent = prevTxt
+              elBtn.disabled = false
+              flashFail(elBtn)
+              return
+            }
+
+            lastState = res.state
+            g.setSnapshot(res.state, 'soft')
+            saveSnapshot(config, res.state)
+
+            // Keep menu badge accurate even before the modal is closed.
+            refreshContractsBadgeGlobal?.()
+
+            // Menu Paladyum line is not reactive; force a re-render so it updates.
+            render()
+
+            // If signed in, upload immediately so contracts continue across devices.
+            const st = firebaseSync?.getStatus()
+            const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
+            if (canCloud) {
+              try {
+                await withLoading(async () => {
+                  await firebaseSync!.uploadMetaFromState(g.getSnapshot())
+                })
+              } catch (e) {
+                alert(String((e as any)?.message ?? e))
+              }
+            }
+
+            overlay.remove()
+            await showDailyContractsModal()
+          } finally {
+            // If the modal is still open (e.g., claim failed), restore the button.
+            if (document.body.contains(elBtn)) {
+              if (!elBtn.disabled) elBtn.textContent = prevTxt
+            }
+          }
+        })()
       }
 
       row.appendChild(claimBtn)
@@ -2973,13 +3044,19 @@ export function createUIStateMachine(args: UIArgs) {
     for (const c of info.contracts) b.appendChild(renderContract(c))
 
     const close = btn('Close', 'btn')
-    close.onclick = () => overlay.remove()
+    close.onclick = () => {
+      overlay.remove()
+      render()
+    }
     b.appendChild(close)
 
     modal.append(h, b)
     overlay = mountModal(modal)
     overlay.addEventListener('pointerdown', (e) => {
-      if (e.target === overlay) overlay.remove()
+      if (e.target === overlay) {
+        overlay.remove()
+        render()
+      }
     })
   }
 
