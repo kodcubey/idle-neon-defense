@@ -204,6 +204,9 @@ export const defaultConfig: GameConfig = {
         dmgMultPerLevel: 0.028,
         fireRateBonusPerLevel: 0.026,
         baseHPMultPerLevel: -0.02,
+        // Tradeoff (system-wide): more enemies + tougher armor scaling.
+        spawnCountMultPerLevel: 0.018,
+        enemyArmorMultPerLevel: 0.01,
       },
       {
         id: 'OF_PRISM_SPINDLE',
@@ -266,6 +269,9 @@ export const defaultConfig: GameConfig = {
         maxEffectiveLevel: 22,
         baseHPBonusPerLevel: 10.0,
         dmgMultPerLevel: -0.018,
+        // Tradeoff: slower meta progression + enemies scale up.
+        pointsMultPerLevel: -0.02,
+        enemyHpMultPerLevel: 0.02,
       },
       {
         id: 'DF_AEGIS_LATTICE',
@@ -364,6 +370,10 @@ export const defaultConfig: GameConfig = {
         fireRateBonusPerLevel: 0.028,
         baseHPMultPerLevel: -0.018,
         goldMultPerLevel: 0.008,
+        // Economy archetype: more Paladyum/points, but harsher KR requirements.
+        pointsMultPerLevel: 0.05,
+        thresholdAddPerLevel: 0.012,
+        penMinAddPerLevel: -0.01,
       },
     ],
   },

@@ -1777,7 +1777,7 @@ export function createUIStateMachine(args: UIArgs) {
     const g = game
 
     const panel = el('div', 'panel')
-    panel.style.maxWidth = '920px'
+    panel.style.maxWidth = '1180px'
     panel.style.margin = '0 auto'
     panel.style.pointerEvents = 'auto'
 
@@ -2346,7 +2346,7 @@ export function createUIStateMachine(args: UIArgs) {
         void showModulesModal()
       },
     })
-    panel.style.width = 'min(980px, calc(100vw - 20px))'
+    panel.style.width = 'min(1240px, calc(100vw - 20px))'
 
     const overlay = mountModal(panel)
     overlay.addEventListener('pointerdown', (e) => {
@@ -2376,6 +2376,7 @@ export function createUIStateMachine(args: UIArgs) {
     const parts: string[] = []
     parts.push(`Lv ${Lraw}${Lraw > L ? ` (cap ${L})` : ''} • Eff Lv ${effLevel.toFixed(2)}`)
     const pctFromFrac = (frac: number) => `${frac >= 0 ? '+' : ''}${(frac * 100).toFixed(1)}%`
+    const ppFromFrac = (frac: number) => `${frac >= 0 ? '+' : ''}${(frac * 100).toFixed(1)}pp`
     const n1 = (v: number) => {
       const vv = Math.abs(v) < 1e-9 ? 0 : v
       const i = Math.round(vv)
@@ -2390,6 +2391,15 @@ export function createUIStateMachine(args: UIArgs) {
     if (def.baseHPBonusPerLevel) parts.push(`Base HP: ${def.baseHPBonusPerLevel * effLevel >= 0 ? '+' : ''}${n1(def.baseHPBonusPerLevel * effLevel)}`)
     if (def.baseHPMultPerLevel) parts.push(`Max HP Mult: ${pctFromFrac(def.baseHPMultPerLevel * effLevel)}`)
     if (def.goldMultPerLevel) parts.push(`Gold Mult: ${pctFromFrac(def.goldMultPerLevel * effLevel)}`)
+
+    if (def.pointsMultPerLevel) parts.push(`Paladyum Mult: ${pctFromFrac(def.pointsMultPerLevel * effLevel)}`)
+
+    if (def.thresholdAddPerLevel) parts.push(`KR Target: ${ppFromFrac(def.thresholdAddPerLevel * effLevel)}`)
+    if (def.penKMultPerLevel) parts.push(`Penalty K: ${pctFromFrac(def.penKMultPerLevel * effLevel)}`)
+    if (def.penMinAddPerLevel) parts.push(`Penalty Min: ${ppFromFrac(def.penMinAddPerLevel * effLevel)}`)
+    if (def.spawnCountMultPerLevel) parts.push(`Spawn Count: ${pctFromFrac(def.spawnCountMultPerLevel * effLevel)}`)
+    if (def.enemyHpMultPerLevel) parts.push(`Enemy HP: ${pctFromFrac(def.enemyHpMultPerLevel * effLevel)}`)
+    if (def.enemyArmorMultPerLevel) parts.push(`Enemy Armor: ${pctFromFrac(def.enemyArmorMultPerLevel * effLevel)}`)
 
     if (def.shotCountPerLevel) {
       const add = Math.floor(def.shotCountPerLevel * effLevel)

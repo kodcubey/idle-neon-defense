@@ -2,7 +2,6 @@ import Phaser from 'phaser'
 import type { GameConfig, GameState } from '../../types'
 import { SimEngine, type SimCallbacks, type SimPublic } from '../../sim/SimEngine'
 import { calcBaseHPMax } from '../../sim/actions'
-import { calcPaladyumDropChancePerKill } from '../../sim/deterministic'
 
 export class GameScene extends Phaser.Scene {
   private cfg!: GameConfig
@@ -24,8 +23,6 @@ export class GameScene extends Phaser.Scene {
   private enemyHitFx = new Map<number, { untilSec: number; crit: boolean }>()
 
   private enemyDeathFx: Array<{ x: number; y: number; t0: number; kind: 'kill' | 'escape' }> = []
-
-  private paladyumTextPool: Phaser.GameObjects.Text[] = []
 
   private prevProjectilePos = new Map<number, { x: number; y: number }>()
   private prevProjectileAlive = new Map<number, boolean>()
@@ -391,16 +388,6 @@ export class GameScene extends Phaser.Scene {
         if (prevAlive) {
           const kind: 'kill' | 'escape' = e.hp <= 0 ? 'kill' : 'escape'
           this.enemyDeathFx.push({ x: e.x, y: e.y, t0: this.vTimeSec, kind })
-
-          // Paladyum drop visual: show "+1" at the dead enemy position.
-          // Must match SimEngine logic (detU01 + calcPaladyumDropChancePerKill).
-          if (kind === 'kill') {
-            const chance = calcPaladyumDropChancePerKill({ wave: pub.wave.wave, spawnCount: pub.wave.spawnCount, cfg: this.cfg })
-            if (chance > 0) {
-              const u = detU01(pub.wave.wave, e.index1, e.id)
-              if (u < chance) this.spawnPaladyumPlusOne(e.x, e.y, reduceFx)
-            }
-          }
         }
       }
 
@@ -537,45 +524,6 @@ export class GameScene extends Phaser.Scene {
     this.fx.fillCircle(ox, oy, 7.0)
   }
 
-  private spawnPaladyumPlusOne(x: number, y: number, reduceFx: boolean) {
-    const pal = this.cfg.ui.palette
-
-    const t = this.paladyumTextPool.pop()
-    const txt =
-      t ??
-      this.add
-        .text(0, 0, '+1', {
-          fontSize: '16px',
-          color: pal.neonLime,
-          stroke: pal.neonCyan,
-          strokeThickness: 2,
-        })
-        .setOrigin(0.5, 0.5)
-        .setDepth(50)
-
-    txt.setVisible(true)
-    txt.setAlpha(1)
-    txt.setPosition(x, y - 10)
-    txt.setScale(0.35)
-
-    const dur = reduceFx ? 420 : 560
-    const dy = reduceFx ? 18 : 26
-    const s1 = reduceFx ? 0.95 : 1.18
-
-    this.tweens.add({
-      targets: txt,
-      y: y - 10 - dy,
-      scaleX: s1,
-      scaleY: s1,
-      alpha: 0,
-      ease: 'Cubic.Out',
-      duration: dur,
-      onComplete: () => {
-        txt.setVisible(false)
-        this.paladyumTextPool.push(txt)
-      },
-    })
-  }
 
   private setEnemyHitFx(enemyId: number, durSec: number, crit: boolean) {
     const id = Math.max(1, Math.floor(enemyId))
@@ -601,30 +549,4 @@ function clamp01(x: number): number {
 function hexTo0x(hex: string): number {
   // Accepts '#RRGGBB' or 'RRGGBB'.
   return Phaser.Display.Color.HexStringToColor(hex).color
-}
-
-function detU01(wave: number, index1: number, enemyId: number): number {
-  // Copy of SimEngine.detU01() to keep visuals perfectly in sync.
-  const w = Math.max(1, Math.floor(wave))
-  const i = Math.max(1, Math.floor(index1))
-  const e = Math.max(1, Math.floor(enemyId))
-
-  let x = 0
-  x = (x + Math.imul(w, 2246822519)) | 0
-  x = (x + Math.imul(i, 3266489917)) | 0
-  x = (x + Math.imul(e, 668265263)) | 0
-
-  x ^= x >>> 16
-  x = Math.imul(x, 2246822507)
-  x ^= x >>> 13
-  x = Math.imul(x, 3266489909)
-  x ^= x >>> 16
-
-  const u = (x >>> 0) / 4294967296
-  return clampNum(u, 0, 0.999999999)
-}
-
-function clampNum(x: number, min: number, max: number): number {
-  if (!Number.isFinite(x)) return max
-  return Math.max(min, Math.min(max, x))
 }

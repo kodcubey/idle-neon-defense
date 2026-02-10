@@ -40,6 +40,15 @@ export type ModuleAggregate = {
   baseHPBonus: number
   baseHPMult: number
   goldMult: number
+  pointsMult: number
+
+  thresholdAdd: number
+  penKMult: number
+  penMinAdd: number
+  spawnCountMult: number
+
+  enemyHpMult: number
+  enemyArmorMult: number
 
   shotCount: number
   invulnDurationSec: number
@@ -63,6 +72,15 @@ export function aggregateModules(state: GameState, cfg: GameConfig): ModuleAggre
   let baseHPBonus = 0
   let baseHPMult = 1
   let goldMult = 1
+  let pointsMult = 1
+
+  let thresholdAdd = 0
+  let penKMult = 1
+  let penMinAdd = 0
+  let spawnCountMult = 1
+
+  let enemyHpMult = 1
+  let enemyArmorMult = 1
 
   let shotCount = 1
   let invulnDurationSec = 0
@@ -101,6 +119,7 @@ export function aggregateModules(state: GameState, cfg: GameConfig): ModuleAggre
     if (def.armorPiercePerLevel) armorPierce += def.armorPiercePerLevel * effLevel
     if (def.baseHPBonusPerLevel) baseHPBonus += def.baseHPBonusPerLevel * effLevel
     if (def.goldMultPerLevel) goldMult *= 1 + def.goldMultPerLevel * effLevel
+    if (def.pointsMultPerLevel) pointsMult *= 1 + def.pointsMultPerLevel * effLevel
 
     if (def.baseHPMultPerLevel) baseHPMult *= 1 + def.baseHPMultPerLevel * effLevel
 
@@ -127,6 +146,14 @@ export function aggregateModules(state: GameState, cfg: GameConfig): ModuleAggre
     if (def.enemySpeedMultPerLevel) {
       enemySpeedMult *= 1 + def.enemySpeedMultPerLevel * effLevel
     }
+
+    if (def.thresholdAddPerLevel) thresholdAdd += def.thresholdAddPerLevel * effLevel
+    if (def.penKMultPerLevel) penKMult *= 1 + def.penKMultPerLevel * effLevel
+    if (def.penMinAddPerLevel) penMinAdd += def.penMinAddPerLevel * effLevel
+    if (def.spawnCountMultPerLevel) spawnCountMult *= 1 + def.spawnCountMultPerLevel * effLevel
+
+    if (def.enemyHpMultPerLevel) enemyHpMult *= 1 + def.enemyHpMultPerLevel * effLevel
+    if (def.enemyArmorMultPerLevel) enemyArmorMult *= 1 + def.enemyArmorMultPerLevel * effLevel
   }
 
   return {
@@ -138,6 +165,15 @@ export function aggregateModules(state: GameState, cfg: GameConfig): ModuleAggre
     baseHPBonus,
     baseHPMult: clamp(baseHPMult, 0.2, 3.0),
     goldMult,
+    pointsMult: clamp(pointsMult, 0, 10),
+
+    thresholdAdd: clamp(thresholdAdd, -0.35, 0.35),
+    penKMult: clamp(penKMult, 0.2, 3.0),
+    penMinAdd: clamp(penMinAdd, -0.5, 0.5),
+    spawnCountMult: clamp(spawnCountMult, 0.5, 2.0),
+
+    enemyHpMult: clamp(enemyHpMult, 0.3, 5.0),
+    enemyArmorMult: clamp(enemyArmorMult, 0.3, 5.0),
 
     shotCount: clamp(Math.floor(shotCount), 1, 8),
     invulnDurationSec,
@@ -255,13 +291,16 @@ export function calcTotalEHP(wave: number, dpsSnap: number, cfg: GameConfig): nu
   return Math.max(1, dpsSnap * T * rho * g)
 }
 
-export function calcSpawnCount(wave: number, cfg: GameConfig, quality: GameState['settings']['quality']): number {
+export function calcSpawnCount(wave: number, cfg: GameConfig, quality: GameState['settings']['quality'], mods?: ModuleAggregate): number {
   const w = Math.max(1, Math.floor(wave))
   const { nMin, u, v } = cfg.progression
   const nBase = nMin + Math.floor(u * Math.sqrt(w) + v * Math.log(1 + w))
 
   const nMax = quality === 'low' ? cfg.progression.nMaxLow : quality === 'med' ? cfg.progression.nMaxMed : cfg.progression.nMaxHigh
-  return clamp(nBase, nMin, nMax)
+
+  const m = mods ?? ({ spawnCountMult: 1 } as ModuleAggregate)
+  const scaled = Math.round(nBase * (Number.isFinite(m.spawnCountMult) ? m.spawnCountMult : 1))
+  return clamp(scaled, nMin, nMax)
 }
 
 export function calcWavePattern(wave: number, cfg: GameConfig): number {
@@ -313,7 +352,7 @@ export type EnemyStats = {
   speed: number
 }
 
-export function calcEnemyStats(wave: number, index1: number, totalEHP: number, spawnCount: number, cfg: GameConfig): EnemyStats {
+export function calcEnemyStats(wave: number, index1: number, totalEHP: number, spawnCount: number, cfg: GameConfig, mods?: ModuleAggregate): EnemyStats {
   const K = cfg.enemies.types.length
   const typeIndex = calcEnemyTypeIndex(wave, index1, cfg, K)
   const type = cfg.enemies.types[typeIndex]
@@ -321,30 +360,40 @@ export function calcEnemyStats(wave: number, index1: number, totalEHP: number, s
   const per = Math.max(1, totalEHP / Math.max(1, spawnCount))
   const S = calcTypeVariationS(index1, cfg)
 
-  const hp = Math.max(1, per * S * type.hpMult)
+  const m = mods ?? ({ enemyHpMult: 1, enemyArmorMult: 1 } as ModuleAggregate)
+  const hp = Math.max(1, per * S * type.hpMult * (Number.isFinite(m.enemyHpMult) ? m.enemyHpMult : 1))
 
   const armorBase = Math.min(cfg.progression.armorMax, cfg.progression.armorAlpha * Math.log(1 + Math.max(1, wave)))
-  const armor = clamp(armorBase * type.armorMult, 0, cfg.progression.armorMax)
+  const armor = clamp(armorBase * type.armorMult * (Number.isFinite(m.enemyArmorMult) ? m.enemyArmorMult : 1), 0, cfg.progression.armorMax)
 
   const speed = Math.max(1, type.baseSpeed * (1 + (cfg.progression.speedK * Math.sqrt(Math.max(1, wave))) / 100))
 
   return { type, hp, armor, speed }
 }
 
-export function calcThreshold(wave: number, cfg: GameConfig): number {
+export function calcThreshold(wave: number, cfg: GameConfig, mods?: ModuleAggregate): number {
   const w = Math.max(1, Math.floor(wave))
   const { th0, thSlope, thMin, thMax } = cfg.progression
-  return clamp(th0 + thSlope * Math.log(1 + w), thMin, thMax)
+  const base = clamp(th0 + thSlope * Math.log(1 + w), thMin, thMax)
+  const add = mods?.thresholdAdd ?? 0
+  return clamp(base + add, 0, 1)
 }
 
-export function calcPenaltyFactor(killRatio: number, threshold: number, cfg: GameConfig): { penaltyFactor: number; deficit: number } {
+export function calcPenaltyFactor(
+  killRatio: number,
+  threshold: number,
+  cfg: GameConfig,
+  mods?: ModuleAggregate
+): { penaltyFactor: number; deficit: number } {
   const kr = clamp(killRatio, 0, 1)
   const th = clamp(threshold, 0.0001, 1)
 
   if (kr >= th) return { penaltyFactor: 1.0, deficit: 0 }
 
   const deficit = (th - kr) / th
-  const penaltyFactor = clamp(1.0 - cfg.progression.penK * deficit, cfg.progression.penMin, 1.0)
+  const penK = cfg.progression.penK * clamp(mods?.penKMult ?? 1, 0.2, 3.0)
+  const penMin = clamp(cfg.progression.penMin + clamp(mods?.penMinAdd ?? 0, -0.5, 0.5), 0, 1)
+  const penaltyFactor = clamp(1.0 - penK * deficit, penMin, 1.0)
   return { penaltyFactor, deficit }
 }
 
@@ -390,10 +439,11 @@ export function calcPaladyumRewardForWave(state: GameState, wave: number, cfg: G
 }
 
 export function calcWaveSnapshot(state: GameState, cfg: GameConfig): WaveSnapshot {
+  const mods = aggregateModules(state, cfg)
   const dpsSnap = calcDPS(state, cfg)
   const totalEHP = calcTotalEHP(state.wave, dpsSnap, cfg)
-  const spawnCount = calcSpawnCount(state.wave, cfg, state.settings.quality)
-  const threshold = calcThreshold(state.wave, cfg)
+  const spawnCount = calcSpawnCount(state.wave, cfg, state.settings.quality, mods)
+  const threshold = calcThreshold(state.wave, cfg, mods)
 
   return {
     wave: state.wave,
@@ -410,16 +460,17 @@ export function calcWaveReport(args: {
   killed: number
   escaped: number
   cfg: GameConfig
-  rewardPoints?: number
 }): WaveReport {
   const { snapshot, killed, escaped, cfg, state } = args
   const N = Math.max(1, snapshot.spawnCount)
   const killRatio = clamp(killed / N, 0, 1)
-  const { penaltyFactor, deficit } = calcPenaltyFactor(killRatio, snapshot.threshold, cfg)
+  const mods = aggregateModules(state, cfg)
+  const { penaltyFactor, deficit } = calcPenaltyFactor(killRatio, snapshot.threshold, cfg, mods)
 
   const baseGold = calcBaseGold(snapshot.wave, snapshot.totalEHP, cfg)
-  const rewardGold = baseGold * penaltyFactor * aggregateModules(state, cfg).goldMult * towerGoldMult(state, cfg)
-  const rewardPoints = Math.max(0, Math.floor(args.rewardPoints ?? 0))
+  const rewardGold = baseGold * penaltyFactor * mods.goldMult * towerGoldMult(state, cfg)
+  const basePoints = calcPointsReward(snapshot.wave, cfg)
+  const rewardPoints = Math.max(0, Math.floor(basePoints * penaltyFactor * mods.pointsMult))
 
   const baseDamageFromEscapes = cfg.progression.enableEscapeDamage
     ? escaped * cfg.progression.escapeDamage * (1 + cfg.progression.deficitBoost * deficit)

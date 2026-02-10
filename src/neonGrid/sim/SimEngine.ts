@@ -4,7 +4,6 @@ import {
   baseDmg,
   calcPenaltyFactor,
   calcEnemyStats,
-  calcPaladyumDropChancePerKill,
   calcSpawnTimeSec,
   calcWaveReport,
   calcWaveSnapshot,
@@ -99,11 +98,11 @@ export class SimEngine {
 
   private _state: GameState
   private snapshot: WaveSnapshot
+  private waveMods!: ReturnType<typeof aggregateModules>
 
   private waveTimeSec = 0
   private killed = 0
   private escaped = 0
-  private pointsDroppedThisWave = 0
   private spawnedSoFar = 0
   private escapeDamageAppliedThisWave = 0
 
@@ -145,6 +144,7 @@ export class SimEngine {
     this.arena = this.createArena(args.viewport)
     this.towerPos = { ...this.arena.center }
 
+    this.waveMods = aggregateModules(this._state, this.cfg)
     this.snapshot = calcWaveSnapshot(this._state, this.cfg)
     this.buildSpawnPlan()
   }
@@ -211,6 +211,7 @@ export class SimEngine {
 
   setSnapshot(state: GameState) {
     this._state = { ...state }
+    this.waveMods = aggregateModules(this._state, this.cfg)
     this.snapshot = calcWaveSnapshot(this._state, this.cfg)
     this.resetWaveRuntime()
     this.buildSpawnPlan()
@@ -284,6 +285,7 @@ export class SimEngine {
     this._state.wave++
     this._state.stats.bestWave = Math.max(this._state.stats.bestWave, this._state.wave)
 
+    this.waveMods = aggregateModules(this._state, this.cfg)
     this.snapshot = calcWaveSnapshot(this._state, this.cfg)
     this.resetWaveRuntime()
     this.buildSpawnPlan()
@@ -335,7 +337,6 @@ export class SimEngine {
     this.waveTimeSec = 0
     this.killed = 0
     this.escaped = 0
-    this.pointsDroppedThisWave = 0
     this.spawnedSoFar = 0
     this.escapeDamageAppliedThisWave = 0
     this.enemies = []
@@ -380,7 +381,7 @@ export class SimEngine {
 
     for (let i = 1; i <= N; i++) {
       const spawnAtSec = calcSpawnTimeSec(this.snapshot.wave, i, N, this.cfg)
-      const s = calcEnemyStats(this.snapshot.wave, i, this.snapshot.totalEHP, N, this.cfg)
+      const s = calcEnemyStats(this.snapshot.wave, i, this.snapshot.totalEHP, N, this.cfg, this.waveMods)
 
       const spawn = this.calcSpawnPoint(this.snapshot.wave, i)
       const dx = this.arena.center.x - spawn.x
@@ -534,17 +535,6 @@ export class SimEngine {
         if (target.hp <= 0 && target.alive) {
           target.alive = false
 
-          // Paladyum: rare deterministic drops from killed enemies (no per-wave grant).
-          const chance = calcPaladyumDropChancePerKill({ wave: this.snapshot.wave, spawnCount: this.snapshot.spawnCount, cfg: this.cfg })
-          if (chance > 0) {
-            const u = this.detU01(this.snapshot.wave, target.index1, target.id)
-            if (u < chance) {
-              this._state.points += 1
-              this.pointsDroppedThisWave += 1
-              this._state.stats.paladyumDroppedThisRun = Math.max(0, Math.floor((this._state.stats.paladyumDroppedThisRun ?? 0) + 1))
-            }
-          }
-
           this.killed++
           this._state.stats.totalKills++
         }
@@ -631,7 +621,6 @@ export class SimEngine {
       killed: this.killed,
       escaped: this.escaped,
       cfg: this.cfg,
-      rewardPoints: this.pointsDroppedThisWave,
     })
 
     // Escape damage is applied instantly on each escape; keep the report consistent.
@@ -639,7 +628,9 @@ export class SimEngine {
 
     this._state.gold += report.rewardGold
 
-    // Note: Paladyum is awarded during the wave via drops.
+    // Paladyum (points) is awarded deterministically at wave end.
+    this._state.points += report.rewardPoints
+    this._state.stats.paladyumDroppedThisRun = Math.max(0, Math.floor((this._state.stats.paladyumDroppedThisRun ?? 0) + report.rewardPoints))
 
     if (this._state.baseHP <= 0) {
       const sum: RunSummary = {
@@ -658,29 +649,6 @@ export class SimEngine {
     // Pause on wave complete; advance only when UI explicitly continues.
     this.paused = true
     this.awaitingNextWave = true
-  }
-
-  private detU01(wave: number, index1: number, enemyId: number): number {
-    // Deterministic pseudo-random in [0,1). Never uses Math.random().
-    const w = Math.max(1, Math.floor(wave))
-    const i = Math.max(1, Math.floor(index1))
-    const e = Math.max(1, Math.floor(enemyId))
-
-    // Mix into 32-bit.
-    let x = 0
-    x = (x + Math.imul(w, 2246822519)) | 0
-    x = (x + Math.imul(i, 3266489917)) | 0
-    x = (x + Math.imul(e, 668265263)) | 0
-
-    // Final avalanche.
-    x ^= x >>> 16
-    x = Math.imul(x, 2246822507)
-    x ^= x >>> 13
-    x = Math.imul(x, 3266489909)
-    x ^= x >>> 16
-
-    const u = (x >>> 0) / 4294967296
-    return clamp(u, 0, 0.999999999)
   }
 
   private createArena(viewport: { width: number; height: number }): {

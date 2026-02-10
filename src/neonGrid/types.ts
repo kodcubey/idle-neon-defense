@@ -46,6 +46,24 @@ export type ModuleDef = {
 
   goldMultPerLevel?: number
 
+  // Meta currency (Paladyum / points) gain multiplier.
+  // Example: 0.02 => +2% points per effective level.
+  pointsMultPerLevel?: number
+
+  // Kill-ratio system modifiers.
+  // thresholdFinal = clamp(thresholdBase + thresholdAdd, 0, 1)
+  thresholdAddPerLevel?: number
+  // penKFinal = penK * penKMult, penMinFinal = clamp(penMin + penMinAdd, 0, 1)
+  penKMultPerLevel?: number
+  penMinAddPerLevel?: number
+
+  // Difficulty shaping.
+  // spawnCountFinal = clamp(round(spawnCountBase * spawnCountMult), nMin, nMax)
+  spawnCountMultPerLevel?: number
+  // enemy hp/armor shaping multipliers.
+  enemyHpMultPerLevel?: number
+  enemyArmorMultPerLevel?: number
+
   // Utility abilities (deterministic; no manual activation).
   // Shot count is computed as 1 + floor(shotCountPerLevel * effectiveLevel), then capped.
   shotCountPerLevel?: number
