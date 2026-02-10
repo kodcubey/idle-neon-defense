@@ -357,6 +357,86 @@
       color: var(--text-secondary);
     }
 
+    /* Deep Dive / Strategy */
+    .deep-dive {
+      padding: 80px 0;
+      background: var(--bg-panel);
+      border-top: 1px solid var(--border-subtle);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .section-subtitle {
+      text-align: center;
+      max-width: 860px;
+      margin: -40px auto 56px;
+      color: var(--text-secondary);
+      font-size: 18px;
+      line-height: 1.6;
+    }
+
+    .deep-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 32px;
+    }
+
+    .deep-card {
+      background: rgba(7, 8, 18, 0.35);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 32px;
+      transition: all 0.3s ease;
+    }
+
+    .deep-card:hover {
+      border-color: var(--neon-cyan);
+      box-shadow: var(--glow-cyan);
+      transform: translateY(-3px);
+    }
+
+    .deep-card h3 {
+      font-size: 20px;
+      font-weight: 800;
+      margin-bottom: 10px;
+      letter-spacing: -0.3px;
+    }
+
+    .deep-card p {
+      color: var(--text-secondary);
+      margin-bottom: 14px;
+      font-size: 15px;
+      line-height: 1.65;
+    }
+
+    .deep-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .deep-list li {
+      position: relative;
+      padding-left: 18px;
+    }
+
+    .deep-list li::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0.62em;
+      width: 6px;
+      height: 6px;
+      border-radius: 99px;
+      background: var(--neon-cyan);
+      box-shadow: var(--glow-cyan);
+    }
+
     /* CTA Section */
     .cta-section {
       padding: 100px 0;
@@ -543,7 +623,7 @@
   </section>
 
   <!-- How It Works -->
-  <section class="how-it-works">
+  <section id="how-it-works" class="how-it-works">
     <div class="container">
       <h2 class="section-title">How It Works</h2>
       <div class="steps-grid">
@@ -566,6 +646,63 @@
           <div class="step-number">4</div>
           <h3>Grow Stronger</h3>
           <p>Unlock upgrades, increase power, and master new strategies. Every decision builds toward your ultimate defense system.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How to Play / Strategy (Deep Dive) -->
+  <section id="strategy" class="deep-dive">
+    <div class="container">
+      <h2 class="section-title">How to Play: Modules, Meta Upgrades, and Strategy</h2>
+      <p class="section-subtitle">
+        Because this game is <strong>RNG-free</strong>, planning beats luck: the same decisions produce the same outcomes.
+        Use the sections below to understand how modules shape your build, how meta upgrades scale your progress, and how to iterate on strategy.
+      </p>
+
+      <div class="deep-grid">
+        <div class="deep-card">
+          <h3>1) Core Loop (How a Run Works)</h3>
+          <p>Your goal each run is to progress consistently through fixed-length waves and keep your reward multiplier healthy.</p>
+          <ul class="deep-list">
+            <li>Place towers on the neon grid; aim for stability early.</li>
+            <li>Each wave ends on a fixed timer; your performance is tracked via Kill Ratio and a required Threshold.</li>
+            <li>If you fall below the threshold, your reward multiplier drops—balance your build to prevent that.</li>
+            <li>Offline progress is deterministic too: results are computed from elapsed time when you return.</li>
+          </ul>
+        </div>
+
+        <div class="deep-card">
+          <h3>2) Modules (Your Build’s Backbone)</h3>
+          <p>Modules shape your tower stats, economy, and survivability—think of them as role-defining parts of your build.</p>
+          <ul class="deep-list">
+            <li>More slots unlock more synergy—choosing which slots to unlock first is a real strategic decision.</li>
+            <li>Balance OFFENSE / DEFENSE / UTILITY; over-leaning into one axis can make thresholds fragile.</li>
+            <li>Module upgrades may look small, but in a deterministic system their compounded impact matters.</li>
+            <li>Keep experiments repeatable: the same module set yields the same baseline to optimize against.</li>
+          </ul>
+        </div>
+
+        <div class="deep-card">
+          <h3>3) Meta Upgrades (Permanent Power)</h3>
+          <p>Spend points earned from runs on permanent upgrades to raise your baseline for future runs.</p>
+          <ul class="deep-list">
+            <li>Offense: permanent boosts to damage, fire rate, crit effectiveness, and similar metrics.</li>
+            <li>Defense: base durability, escape-related mitigation, or sustain-style bonuses.</li>
+            <li>Economy: small but critical edges like gold multipliers or cost curve relief.</li>
+            <li>Invest with a goal: do you want a faster start, or a higher ceiling?</li>
+          </ul>
+        </div>
+
+        <div class="deep-card">
+          <h3>4) Building Strategy (Practical Guide)</h3>
+          <p>Determinism lets you improve like a lab experiment: measure, compare, iterate.</p>
+          <ul class="deep-list">
+            <li>Early game: secure your kill ratio; prioritize consistency over greedy spikes.</li>
+            <li>Mid game: complete module synergies; maintain a defense/economy balance.</li>
+            <li>Late game: identify one bottleneck (DPS, range, durability) and focus upgrades there.</li>
+            <li>Change one variable at a time so comparisons stay meaningful.</li>
+          </ul>
         </div>
       </div>
     </div>
