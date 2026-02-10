@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Idle Tower Defense</title>
+
+  <meta name="description"
+    content="Idle Tower Defense is a deterministic (no-RNG) web-based idle tower defense game. Upgrade your towers on a neon grid, stop the waves, and progress offline." />
+  <meta name="robots" content="noindex, follow" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="color-scheme" content="dark" />
+
+  <link rel="canonical" href="https://idletowerdefense.com/game/" />
+
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
+  <meta property="og:locale" content="en_US" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://idletowerdefense.com/game/" />
+  <meta property="og:site_name" content="Idle Tower Defense" />
+  <meta property="og:title" content="Idle Tower Defense" />
+  <meta property="og:description"
+    content="A deterministic (no-RNG) web-based idle tower defense game. Upgrade your towers on a neon grid, stop the waves, and progress offline." />
+  <meta property="og:image" content="/icons/icon-512.png" />
+  <meta property="og:image:width" content="512" />
+  <meta property="og:image:height" content="512" />
+
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:url" content="https://idletowerdefense.com/game/" />
+  <meta name="twitter:title" content="Idle Tower Defense" />
+  <meta name="twitter:description"
+    content="A deterministic (no-RNG) web-based idle tower defense game. Upgrade your towers on a neon grid, stop the waves, and progress offline." />
+  <meta name="twitter:image" content="/icons/icon-512.png" />
+
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "VideoGame",
+      "name": "Idle Tower Defense",
+      "description": "A deterministic (no-RNG) web-based idle tower defense game. Upgrade your towers on a neon grid, stop the waves, and progress offline.",
+      "image": "/icons/icon-512.png",
+      "operatingSystem": "Web",
+      "applicationCategory": "Game"
+    }
+  </script>
+</head>
+
+<body>
+  <div id="root">
+    <div id="game" aria-label="Game Canvas"></div>
+    <div id="ui" aria-label="UI Overlay"></div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-N0WFLHHVY0"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag() { dataLayer.push(arguments); }
+    gtag('js', new Date());
+
+    gtag('config', 'G-N0WFLHHVY0');
+  </script>
+</body>
+
+</html>

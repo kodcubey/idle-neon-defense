@@ -1,65 +1,641 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-
 <head>
-  <meta charset="UTF-8" />
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <link rel="manifest" href="/manifest.json" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Idle Tower Defense</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <!-- Primary Meta Tags -->
+  <title>Idle Tower Defense - Deterministic Strategy Game | Play Free Online</title>
+  <meta name="title" content="Idle Tower Defense - Deterministic Strategy Game | Play Free Online">
+  <meta name="description" content="Experience the next generation of idle tower defense. No RNG, pure strategy. Build your neon grid defense, upgrade towers, and progress offline. Play now for free in your browser.">
+  <meta name="keywords" content="idle tower defense, tower defense game, strategy game, browser game, no RNG, deterministic game, free online game, idle game, neon defense, web game">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <meta name="language" content="English">
+  <meta name="author" content="Idle Tower Defense">
+  <meta name="theme-color" content="#070812">
+  <meta name="color-scheme" content="dark">
 
-  <meta name="description"
-    content="Idle Tower Defense is a deterministic (no-RNG) web-based idle tower defense game. Upgrade your towers on a neon grid, stop the waves, and progress offline." />
-  <meta name="robots" content="index, follow, max-image-preview:large" />
-  <meta name="theme-color" content="#000000" />
-  <meta name="color-scheme" content="dark" />
+  <link rel="canonical" href="https://idletowerdefense.com/">
 
-  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
-
-  <meta property="og:locale" content="en_US" />
-  <meta property="og:type" content="website" />
-  <meta property="og:site_name" content="Idle Tower Defense" />
-  <meta property="og:title" content="Idle Tower Defense" />
-  <meta property="og:description"
-    content="A deterministic (no-RNG) web-based idle tower defense game. Upgrade your towers on a neon grid, stop the waves, and progress offline." />
-  <meta property="og:image" content="/icons/icon-512.png" />
-  <meta property="og:image:width" content="512" />
-  <meta property="og:image:height" content="512" />
-
-  <meta name="twitter:card" content="summary" />
-  <meta name="twitter:title" content="Idle Tower Defense" />
-  <meta name="twitter:description"
-    content="A deterministic (no-RNG) web-based idle tower defense game. Upgrade your towers on a neon grid, stop the waves, and progress offline." />
-  <meta name="twitter:image" content="/icons/icon-512.png" />
-
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://idletowerdefense.com/">
+  <meta property="og:site_name" content="Idle Tower Defense">
+  <meta property="og:title" content="Idle Tower Defense - Deterministic Strategy Game">
+  <meta property="og:description" content="Experience the next generation of idle tower defense. No RNG, pure strategy. Build your neon grid defense, upgrade towers, and progress offline.">
+  <meta property="og:image" content="https://idletowerdefense.com/icons/icon-512.png">
+  <meta property="og:image:width" content="512">
+  <meta property="og:image:height" content="512">
+  <meta property="og:image:alt" content="Idle Tower Defense">
+  <meta property="og:locale" content="en_US">
+  
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:url" content="https://idletowerdefense.com/">
+  <meta name="twitter:title" content="Idle Tower Defense - Deterministic Strategy Game">
+  <meta name="twitter:description" content="No RNG, pure strategy. Build your neon grid defense, upgrade towers, and progress offline. Play free in your browser.">
+  <meta name="twitter:image" content="https://idletowerdefense.com/icons/icon-512.png">
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192.png">
+  
+  <!-- Preconnect for performance -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  
+  <!-- Google Fonts - Inter -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- JSON-LD Structured Data -->
   <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "VideoGame",
-      "name": "Idle Tower Defense",
-      "description": "A deterministic (no-RNG) web-based idle tower defense game. Upgrade your towers on a neon grid, stop the waves, and progress offline.",
-      "image": "/icons/icon-512.png",
-      "operatingSystem": "Web",
-      "applicationCategory": "Game"
-    }
+  {
+    "@context": "https://schema.org",
+    "@type": "VideoGame",
+    "name": "Idle Tower Defense",
+    "description": "A deterministic idle tower defense game with no RNG. Build your neon grid defense, upgrade towers strategically, and progress offline.",
+    "url": "https://idletowerdefense.com/",
+    "image": "https://idletowerdefense.com/icons/icon-512.png",
+    "genre": ["Strategy", "Tower Defense", "Idle Game"],
+    "gamePlatform": ["Web browser", "Desktop", "Mobile"],
+    "playMode": "SinglePlayer",
+    "applicationCategory": "Game",
+    "operatingSystem": "Any (Web-based)",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD",
+      "availability": "https://schema.org/InStock"
+    },
+    "keywords": "idle tower defense, strategy game, no RNG, deterministic, browser game, free online game"
+  }
   </script>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-dark: #070812;
+      --bg-panel: rgba(14, 18, 38, 0.8);
+      --neon-cyan: #22f5ff;
+      --neon-magenta: #ff2bd6;
+      --neon-lime: #b6ff2e;
+      --text-primary: #eaf0ff;
+      --text-secondary: rgba(234, 240, 255, 0.7);
+      --text-muted: rgba(234, 240, 255, 0.5);
+      --border-subtle: rgba(34, 245, 255, 0.15);
+      --glow-cyan: 0 0 20px rgba(34, 245, 255, 0.3);
+      --glow-magenta: 0 0 20px rgba(255, 43, 214, 0.3);
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-dark);
+      color: var(--text-primary);
+      line-height: 1.6;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Background Effects */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: 
+        radial-gradient(circle at 20% 30%, rgba(34, 245, 255, 0.08) 0%, transparent 50%),
+        radial-gradient(circle at 80% 70%, rgba(255, 43, 214, 0.06) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Container */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Header */
+    header {
+      padding: 24px 0;
+      border-bottom: 1px solid var(--border-subtle);
+      backdrop-filter: blur(10px);
+      background: rgba(7, 8, 18, 0.8);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .header-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .logo {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, var(--neon-cyan), var(--neon-magenta));
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-decoration: none;
+    }
+
+    /* Hero Section */
+    .hero {
+      padding: 120px 0 80px;
+      text-align: center;
+    }
+
+    .hero h1 {
+      font-size: clamp(40px, 6vw, 72px);
+      font-weight: 800;
+      line-height: 1.1;
+      margin-bottom: 24px;
+      letter-spacing: -1.5px;
+    }
+
+    .hero h1 .gradient-text {
+      background: linear-gradient(135deg, var(--neon-cyan), var(--neon-magenta));
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero p {
+      font-size: clamp(18px, 2.5vw, 24px);
+      color: var(--text-secondary);
+      max-width: 680px;
+      margin: 0 auto 40px;
+      line-height: 1.5;
+    }
+
+    .cta-group {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 60px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px 32px;
+      font-size: 18px;
+      font-weight: 600;
+      text-decoration: none;
+      border-radius: 12px;
+      transition: all 0.3s ease;
+      cursor: pointer;
+      border: none;
+      font-family: inherit;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--neon-cyan), var(--neon-magenta));
+      color: #000;
+      box-shadow: var(--glow-cyan);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 30px rgba(34, 245, 255, 0.5);
+    }
+
+    .btn-secondary {
+      background: var(--bg-panel);
+      color: var(--text-primary);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--neon-cyan);
+      box-shadow: var(--glow-cyan);
+    }
+
+    /* Features Section */
+    .features {
+      padding: 80px 0;
+    }
+
+    .section-title {
+      text-align: center;
+      font-size: clamp(32px, 4vw, 48px);
+      font-weight: 700;
+      margin-bottom: 60px;
+      letter-spacing: -1px;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 32px;
+    }
+
+    .feature-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 32px;
+      transition: all 0.3s ease;
+    }
+
+    .feature-card:hover {
+      border-color: var(--neon-cyan);
+      box-shadow: var(--glow-cyan);
+      transform: translateY(-4px);
+    }
+
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      background: linear-gradient(135deg, var(--neon-cyan), var(--neon-magenta));
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+      font-size: 24px;
+    }
+
+    .feature-card h3 {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: var(--text-primary);
+    }
+
+    .feature-card p {
+      color: var(--text-secondary);
+      font-size: 16px;
+      line-height: 1.6;
+    }
+
+    /* Stats Section */
+    .stats {
+      padding: 80px 0;
+      background: var(--bg-panel);
+      border-top: 1px solid var(--border-subtle);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 48px;
+      text-align: center;
+    }
+
+    .stat-item h4 {
+      font-size: clamp(36px, 5vw, 56px);
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--neon-cyan), var(--neon-magenta));
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+
+    .stat-item p {
+      color: var(--text-secondary);
+      font-size: 16px;
+    }
+
+    /* How It Works */
+    .how-it-works {
+      padding: 80px 0;
+    }
+
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 40px;
+      margin-top: 60px;
+    }
+
+    .step {
+      text-align: center;
+      position: relative;
+    }
+
+    .step-number {
+      width: 64px;
+      height: 64px;
+      background: linear-gradient(135deg, var(--neon-cyan), var(--neon-magenta));
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px;
+      font-size: 28px;
+      font-weight: 800;
+      color: #000;
+    }
+
+    .step h3 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .step p {
+      color: var(--text-secondary);
+    }
+
+    /* CTA Section */
+    .cta-section {
+      padding: 100px 0;
+      text-align: center;
+    }
+
+    .cta-section h2 {
+      font-size: clamp(36px, 5vw, 56px);
+      font-weight: 800;
+      margin-bottom: 24px;
+      letter-spacing: -1px;
+    }
+
+    .cta-section p {
+      font-size: 20px;
+      color: var(--text-secondary);
+      margin-bottom: 40px;
+    }
+
+    /* Footer */
+    footer {
+      padding: 60px 0 40px;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .footer-content {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 40px;
+      margin-bottom: 40px;
+    }
+
+    .footer-section h4 {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 16px;
+      color: var(--text-primary);
+    }
+
+    .footer-section ul {
+      list-style: none;
+    }
+
+    .footer-section ul li {
+      margin-bottom: 12px;
+    }
+
+    .footer-section a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: color 0.3s ease;
+    }
+
+    .footer-section a:hover {
+      color: var(--neon-cyan);
+    }
+
+    .footer-bottom {
+      text-align: center;
+      padding-top: 32px;
+      border-top: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .hero {
+        padding: 80px 0 60px;
+      }
+
+      .features,
+      .stats,
+      .how-it-works {
+        padding: 60px 0;
+      }
+
+      .cta-section {
+        padding: 80px 0;
+      }
+
+      .features-grid,
+      .steps-grid {
+        gap: 24px;
+      }
+
+      .stats-grid {
+        gap: 32px;
+      }
+    }
+  </style>
 </head>
-
 <body>
-  <div id="root">
-    <div id="game" aria-label="Game Canvas"></div>
-    <div id="ui" aria-label="UI Overlay"></div>
-  </div>
-  <script type="module" src="/src/main.ts"></script>
-  <!-- Google tag (gtag.js) -->
-  <script async src="https://www.googletagmanager.com/gtag/js?id=G-N0WFLHHVY0"></script>
-  <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag() { dataLayer.push(arguments); }
-    gtag('js', new Date());
+  <div id="app">
+  <!-- Header -->
+  <header>
+    <div class="container">
+      <div class="header-content">
+        <a href="/" class="logo">IDLE TOWER DEFENSE</a>
+        <a href="/game/" @click.prevent="goGame" class="btn btn-primary" style="padding: 12px 24px; font-size: 16px;">Play Now</a>
+      </div>
+    </div>
+  </header>
 
-    gtag('config', 'G-N0WFLHHVY0');
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="container">
+      <h1>
+        Master the Grid.<br>
+        <span class="gradient-text">Control Your Destiny.</span>
+      </h1>
+      <p>
+        The first truly deterministic idle tower defense. No random chance. Pure strategy. 
+        Every decision matters. Play free in your browser.
+      </p>
+      <div class="cta-group">
+        <a href="/game/" @click.prevent="goGame" class="btn btn-primary">Start Playing Free</a>
+        <a href="#features" class="btn btn-secondary">Learn More</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Stats Section -->
+  <section class="stats">
+    <div class="container">
+      <div class="stats-grid">
+        <div class="stat-item">
+          <h4>100%</h4>
+          <p>Deterministic Gameplay</p>
+        </div>
+        <div class="stat-item">
+          <h4>0 RNG</h4>
+          <p>Pure Strategy</p>
+        </div>
+        <div class="stat-item">
+          <h4>100%</h4>
+          <p>Web-Based</p>
+        </div>
+        <div class="stat-item">
+          <h4>Free</h4>
+          <p>Play in Browser</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Section -->
+  <section id="features" class="features">
+    <div class="container">
+      <h2 class="section-title">Why Players Love It</h2>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">🎯</div>
+          <h3>No RNG, Pure Skill</h3>
+          <p>Every outcome is deterministic. No random number generation means your strategy is everything. Master the mechanics, perfect your builds.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">⚡</div>
+          <h3>Neon Grid Defense</h3>
+          <p>Build and upgrade towers on a stunning neon grid. Each tower placement and upgrade creates new strategic possibilities.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">💾</div>
+          <h3>Save Your Progress</h3>
+          <p>Never lose your hard-earned progress. Cloud sync keeps your game safe across sessions and devices.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🎮</div>
+          <h3>Play Anywhere</h3>
+          <p>Browser-based game that works on desktop and mobile. No downloads, no installations. Just pure strategy gaming.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">☁️</div>
+          <h3>Cloud Sync Optional</h3>
+          <p>Play as a guest or sync your progress to the cloud. Your game, your choice. Continue across devices seamlessly.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🚀</div>
+          <h3>Endless Upgrades</h3>
+          <p>Deep progression system with meaningful upgrades. Every run teaches you something new about optimal strategies.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works -->
+  <section class="how-it-works">
+    <div class="container">
+      <h2 class="section-title">How It Works</h2>
+      <div class="steps-grid">
+        <div class="step">
+          <div class="step-number">1</div>
+          <h3>Click Play</h3>
+          <p>No registration required. Start playing immediately in your browser. Choose guest mode or sign in to save progress.</p>
+        </div>
+        <div class="step">
+          <div class="step-number">2</div>
+          <h3>Build Your Defense</h3>
+          <p>Place towers strategically on the neon grid. Plan your layout, upgrade wisely, and optimize resource management.</p>
+        </div>
+        <div class="step">
+          <div class="step-number">3</div>
+          <h3>Master the Waves</h3>
+          <p>Stop enemy waves with perfect timing and positioning. Learn patterns, refine strategies, and push further each run.</p>
+        </div>
+        <div class="step">
+          <div class="step-number">4</div>
+          <h3>Grow Stronger</h3>
+          <p>Unlock upgrades, increase power, and master new strategies. Every decision builds toward your ultimate defense system.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Final CTA -->
+  <section class="cta-section">
+    <div class="container">
+      <h2>Ready to Dominate the Grid?</h2>
+      <p>Join thousands of players mastering deterministic tower defense strategy.</p>
+      <a href="/game/" @click.prevent="goGame" class="btn btn-primary" style="font-size: 20px; padding: 18px 40px;">Play Free Now</a>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <div class="footer-content">
+        <div class="footer-section">
+          <h4>Game</h4>
+          <ul>
+            <li><a href="/game/" @click.prevent="goGame">Play Now</a></li>
+            <li><a href="#features">Features</a></li>
+            <li><a href="#how-it-works">How It Works</a></li>
+          </ul>
+        </div>
+        <div class="footer-section">
+          <h4>Resources</h4>
+          <ul>
+            <li><a href="/guide">Strategy Guide</a></li>
+            <li><a href="/updates">Updates</a></li>
+            <li><a href="/faq">FAQ</a></li>
+          </ul>
+        </div>
+        <div class="footer-section">
+          <h4>Legal</h4>
+          <ul>
+            <li><a href="/privacy">Privacy Policy</a></li>
+            <li><a href="/terms">Terms of Service</a></li>
+            <li><a href="/contact">Contact</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>&copy; 2026 Idle Tower Defense. All rights reserved. Built with passion for strategy gaming.</p>
+      </div>
+    </div>
+  </footer>
+
+  </div>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script>
+    const { createApp } = Vue
+    createApp({
+      data() {
+        return {
+          gamePath: '/game/',
+        }
+      },
+      methods: {
+        goGame() {
+          window.location.assign(this.gamePath)
+        },
+      },
+    }).mount('#app')
   </script>
 </body>
-
 </html>

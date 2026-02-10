@@ -10,6 +10,9 @@ self.addEventListener('install', (event) => {
         cache.addAll([
           '/',
           '/index.html',
+          '/game',
+          '/game/',
+          '/game/index.html',
           '/manifest.webmanifest',
           '/manifest.json',
           '/favicon.svg',
@@ -39,7 +42,8 @@ self.addEventListener('fetch', (event) => {
 
   // Navigations: network-first, fallback to cached shell.
   if (req.mode === 'navigate') {
-    event.respondWith(fetch(req).catch(() => caches.match('/')))
+    const fallback = url.pathname.startsWith('/game') ? '/game/index.html' : '/index.html'
+    event.respondWith(fetch(req).catch(() => caches.match(fallback)))
     return
   }
 

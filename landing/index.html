@@ -14,27 +14,23 @@
   <meta name="author" content="Idle Tower Defense">
   <meta name="theme-color" content="#070812">
   <meta name="color-scheme" content="dark">
-  
-  <!-- Canonical URL -->
-  <link rel="canonical" href="https://idletowerdefense.com/">
-  
+
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website">
-  <meta property="og:url" content="https://idletowerdefense.com/">
   <meta property="og:site_name" content="Idle Tower Defense">
   <meta property="og:title" content="Idle Tower Defense - Deterministic Strategy Game">
   <meta property="og:description" content="Experience the next generation of idle tower defense. No RNG, pure strategy. Build your neon grid defense, upgrade towers, and progress offline.">
-  <meta property="og:image" content="https://idletowerdefense.com/og-image.png">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="630">
+  <meta property="og:image" content="/icons/icon-512.png">
+  <meta property="og:image:width" content="512">
+  <meta property="og:image:height" content="512">
+  <meta property="og:image:alt" content="Idle Tower Defense">
   <meta property="og:locale" content="en_US">
   
   <!-- Twitter -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:url" content="https://idletowerdefense.com/">
+  <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="Idle Tower Defense - Deterministic Strategy Game">
   <meta name="twitter:description" content="No RNG, pure strategy. Build your neon grid defense, upgrade towers, and progress offline. Play free in your browser.">
-  <meta name="twitter:image" content="https://idletowerdefense.com/twitter-image.png">
+  <meta name="twitter:image" content="/icons/icon-512.png">
   
   <!-- Favicon -->
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
@@ -66,13 +62,6 @@
       "price": "0",
       "priceCurrency": "USD",
       "availability": "https://schema.org/InStock"
-    },
-    "aggregateRating": {
-      "@type": "AggregateRating",
-      "ratingValue": "4.8",
-      "ratingCount": "1247",
-      "bestRating": "5",
-      "worstRating": "1"
     },
     "keywords": "idle tower defense, strategy game, no RNG, deterministic, browser game, free online game"
   }
@@ -461,12 +450,13 @@
   </style>
 </head>
 <body>
+  <div id="app">
   <!-- Header -->
   <header>
     <div class="container">
       <div class="header-content">
         <a href="/" class="logo">IDLE TOWER DEFENSE</a>
-        <a href="https://play.idletowerdefense.com" class="btn btn-primary" style="padding: 12px 24px; font-size: 16px;">Play Now</a>
+        <a href="/game/" @click.prevent="goGame" class="btn btn-primary" style="padding: 12px 24px; font-size: 16px;">Play Now</a>
       </div>
     </div>
   </header>
@@ -483,7 +473,7 @@
         Every decision matters. Play free in your browser.
       </p>
       <div class="cta-group">
-        <a href="https://play.idletowerdefense.com" class="btn btn-primary">Start Playing Free</a>
+        <a href="/game/" @click.prevent="goGame" class="btn btn-primary">Start Playing Free</a>
         <a href="#features" class="btn btn-secondary">Learn More</a>
       </div>
     </div>
@@ -586,7 +576,7 @@
     <div class="container">
       <h2>Ready to Dominate the Grid?</h2>
       <p>Join thousands of players mastering deterministic tower defense strategy.</p>
-      <a href="https://play.idletowerdefense.com" class="btn btn-primary" style="font-size: 20px; padding: 18px 40px;">Play Free Now</a>
+      <a href="/game/" @click.prevent="goGame" class="btn btn-primary" style="font-size: 20px; padding: 18px 40px;">Play Free Now</a>
     </div>
   </section>
 
@@ -597,7 +587,7 @@
         <div class="footer-section">
           <h4>Game</h4>
           <ul>
-            <li><a href="https://play.idletowerdefense.com">Play Now</a></li>
+            <li><a href="/game/" @click.prevent="goGame">Play Now</a></li>
             <li><a href="#features">Features</a></li>
             <li><a href="#how-it-works">How It Works</a></li>
           </ul>
@@ -624,5 +614,24 @@
       </div>
     </div>
   </footer>
+
+  </div>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script>
+    const { createApp } = Vue
+    createApp({
+      data() {
+        return {
+          gamePath: '/game/',
+        }
+      },
+      methods: {
+        goGame() {
+          window.location.assign(this.gamePath)
+        },
+      },
+    }).mount('#app')
+  </script>
 </body>
 </html>
