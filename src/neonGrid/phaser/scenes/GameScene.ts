@@ -18,6 +18,8 @@ export class GameScene extends Phaser.Scene {
 
   private vTimeSec = 0
 
+  private hiddenAtUTC: number | null = null
+
   private prevEnemyHP = new Map<number, number>()
   private prevEnemyAlive = new Map<number, boolean>()
   private enemyHitFx = new Map<number, { untilSec: number; crit: boolean }>()
@@ -65,20 +67,86 @@ export class GameScene extends Phaser.Scene {
 
     this.initBgm()
 
+    // Phaser (and browsers) can throttle/pause the main loop on tab switches.
+    // To avoid the game feeling "stuck", track time spent away and feed it into
+    // the sim accumulator when focus returns.
+    this.installFocusRecovery()
+
     this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
       this.engine.setViewport({ width: gameSize.width, height: gameSize.height })
     })
   }
 
+  private installFocusRecovery() {
+    const onHidden = () => {
+      this.hiddenAtUTC = Date.now()
+    }
+
+    const onVisible = () => {
+      if (this.hiddenAtUTC === null) return
+      const elapsedSec = Math.max(0, (Date.now() - this.hiddenAtUTC) / 1000)
+      this.hiddenAtUTC = null
+
+      // Only catch up when gameplay is actually running.
+      // If the user paused (menu / wave complete), keep it paused.
+      if (!this.engine?.isPaused()) {
+        this.accumulator = Math.min(30, this.accumulator + elapsedSec)
+      }
+    }
+
+    const onVisibility = () => {
+      if (document.hidden) onHidden()
+      else onVisible()
+    }
+
+    const onBlur = () => {
+      // Some platforms may fire blur without a visibility change (e.g. app switch).
+      if (this.hiddenAtUTC === null) onHidden()
+    }
+
+    const onFocus = () => {
+      onVisible()
+    }
+
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('blur', onBlur)
+    window.addEventListener('focus', onFocus)
+
+    const remove = () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('blur', onBlur)
+      window.removeEventListener('focus', onFocus)
+    }
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => remove())
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => remove())
+  }
+
   update(_time: number, deltaMs: number) {
-    const deltaSec = Math.min(0.25, deltaMs / 1000)
-    this.vTimeSec += deltaSec
+    // When the tab is inactive, browsers may throttle RAF/timeouts.
+    // Delta can become very large; don't drop that time (feels like the game "stops").
+    // Instead, keep it in an accumulator and process a bounded amount per frame,
+    // letting the sim catch up over a few frames after returning.
+    const rawDeltaSec = deltaMs / 1000
+    const deltaSec = Number.isFinite(rawDeltaSec) ? Math.max(0, rawDeltaSec) : 0
+
+    // Visual time is kept stable to avoid huge pulse jumps.
+    this.vTimeSec += Math.min(0.25, deltaSec)
     this.accumulator += deltaSec
 
-    while (this.accumulator >= this.fixedDt) {
+    // Prevent a single long-delayed frame from doing unbounded work.
+    // (This also avoids locking up the UI after a long tab switch.)
+    const maxSimSecPerFrame = 0.75
+    const maxSteps = Math.max(1, Math.ceil(maxSimSecPerFrame / this.fixedDt))
+    let steps = 0
+    while (this.accumulator >= this.fixedDt && steps < maxSteps) {
       this.engine.tick(this.fixedDt)
       this.accumulator -= this.fixedDt
+      steps++
     }
+
+    // Keep the backlog bounded; if the user was away for hours, we don't want
+    // to spend minutes fast-forwarding. (This is "tab switch" smoothing, not offline sim.)
+    this.accumulator = Math.min(this.accumulator, 30)
 
     const pub = this.engine.getPublic()
     this.onSimPublic(pub)
