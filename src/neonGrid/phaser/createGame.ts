@@ -204,7 +204,6 @@ export function createGame(args: {
       s.moduleLevels = { ...prev.moduleLevels }
       s.modulesEquipped = { ...prev.modulesEquipped }
       s.moduleSlotsUnlocked = prev.moduleSlotsUnlocked
-      s.dailyContracts = prev.dailyContracts ? JSON.parse(JSON.stringify(prev.dailyContracts)) : s.dailyContracts
 
        // Permanent upgrades define starting tower upgrade levels.
        s.towerMetaUpgrades = { ...prev.towerMetaUpgrades }

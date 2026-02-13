@@ -1,7 +1,7 @@
 import type { GameConfig, GameState, OfflineProgressResult, RunSummary, TowerUpgradeKey, WaveReport } from '../types'
 import type { NeonGridGame } from '../phaser/createGame'
 import type { SimPublic } from '../sim/SimEngine'
-import { createNewState, saveSnapshot } from '../persistence/save'
+import { createNewState } from '../persistence/save'
 import { btn, clear, el, hr, kv } from './dom'
 import { formatNumber, formatPaladyumInt, formatPct, formatTimeMMSS } from './format'
 import {
@@ -25,7 +25,6 @@ import {
 } from '../sim/deterministic'
 import { calcBaseHPMax } from '../sim/actions'
 import { metaUpgradeCostPoints, moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from '../sim/costs'
-import { claimDailyContract, getDailyContracts, type DailyContractView } from '../sim/contracts'
 
 export type UIScreen = 'boot' | 'menu' | 'hud' | 'modules' | 'settings' | 'stats' | 'offline'
 
@@ -39,8 +38,6 @@ type UIArgs = {
 export function createUIStateMachine(args: UIArgs) {
   const { root, config } = args
   let resetRequested = false
-
-  let refreshContractsBadgeGlobal: (() => void) | null = null
 
   let upgradesTab: 'attack' | 'defense' | 'utility' = 'attack'
 
@@ -542,14 +539,6 @@ export function createUIStateMachine(args: UIArgs) {
       </svg>
     `
 
-    const iconClipboard = `
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M9 3h6v3H9V3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M7 6h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M8 11h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        <path d="M8 15h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      </svg>
-    `
 
     const newRun = menuBtn('New Run', iconPlay, 'lime')
     newRun.onclick = () => {
@@ -596,48 +585,7 @@ export function createUIStateMachine(args: UIArgs) {
       void showMetaUpgradesModal()
     }
 
-    const contracts = menuBtn('Contracts', iconClipboard, 'cyan')
-    const contractsBadge = el('span', 'ng-menu-badge')
-    contractsBadge.style.display = 'none'
-    contracts.appendChild(contractsBadge)
-
-    const refreshContractsBadge = () => {
-      const snapshot = game ? game.getSnapshot() : lastState
-      if (!snapshot) {
-        contractsBadge.style.display = 'none'
-        contractsBadge.textContent = ''
-        return
-      }
-
-      const nowUTC = Date.now()
-      const info = getDailyContracts({ state: snapshot, config, nowUTC })
-      if (info.state !== snapshot) {
-        lastState = info.state
-        if (game) game.setSnapshot(info.state, 'soft')
-      }
-
-      const claimable = info.contracts.filter((c) => c.completed && !c.claimed).length
-      if (claimable > 0) {
-        contractsBadge.textContent = String(claimable)
-        contractsBadge.style.display = ''
-      } else {
-        contractsBadge.style.display = 'none'
-        contractsBadge.textContent = ''
-      }
-    }
-
-    refreshContractsBadgeGlobal = refreshContractsBadge
-
-    refreshContractsBadge()
-    contracts.onclick = () => {
-      if (game) game.setPaused(true)
-      void (async () => {
-        await showDailyContractsModal()
-        refreshContractsBadge()
-      })()
-    }
-
-    row.append(newRun, metaUpg, contracts, modules, tower, stats, settings, how)
+    row.append(newRun, metaUpg, modules, tower, stats, settings, how)
 
     const about = el('div', 'panel')
     about.style.marginTop = '12px'
@@ -874,39 +822,6 @@ export function createUIStateMachine(args: UIArgs) {
 
     body.append(line, barOuter)
 
-    // Daily contracts progress (in-game display)
-    const nowUTC = Date.now()
-    const contractsInfo = getDailyContracts({ state, config, nowUTC })
-    if (contractsInfo.state !== state && game) {
-      lastState = contractsInfo.state
-      game.setSnapshot(contractsInfo.state, 'soft')
-    }
-
-    const contractsBox = el('div', 'hud-contracts')
-
-    const doneCount = contractsInfo.contracts.filter((c) => c.completed).length
-    const claimedCount = contractsInfo.contracts.filter((c) => c.claimed).length
-    const contractsTitle = el('div', 'muted')
-    contractsTitle.style.fontWeight = '900'
-    contractsTitle.style.marginTop = '8px'
-    contractsTitle.innerHTML = `Daily Contracts: <span class="mono">${doneCount}/${contractsInfo.contracts.length}</span> completed • <span class="mono">${claimedCount}/${contractsInfo.contracts.length}</span> claimed`
-
-    const list = el('div', 'muted')
-    list.style.fontSize = '12px'
-    list.style.marginTop = '6px'
-
-    for (const c of contractsInfo.contracts) {
-      const line = el('div')
-      const name = c.titleEN
-      const status = c.claimed ? 'CLAIMED' : c.completed ? 'READY' : ''
-      const statusColor = c.claimed ? 'var(--muted)' : c.completed ? 'var(--neon-lime)' : 'var(--muted)'
-      const statusHtml = status ? ` <span class="mono" style="color:${statusColor}">[${status}]</span>` : ''
-      line.innerHTML = `• ${name}: <span class="mono">${formatNumber(c.progress, lastState?.settings.numberFormat ?? 'suffix')}</span>/<span class="mono">${formatNumber(c.goal, lastState?.settings.numberFormat ?? 'suffix')}</span>${statusHtml}`
-      list.appendChild(line)
-    }
-
-    contractsBox.append(contractsTitle, list)
-    body.appendChild(contractsBox)
     topPanel.append(bar, body)
     top.appendChild(topPanel)
 
@@ -2054,29 +1969,6 @@ export function createUIStateMachine(args: UIArgs) {
     const audio = el('div')
     audio.innerHTML = `<div style="font-weight:800">Audio</div>`
 
-    const muteRow = el('div')
-    muteRow.style.display = 'flex'
-    muteRow.style.gap = '10px'
-    muteRow.style.alignItems = 'center'
-    muteRow.style.marginBottom = '6px'
-
-    const mute = document.createElement('input')
-    mute.type = 'checkbox'
-    mute.checked = !!((getSnap()?.settings as any)?.audioMuted)
-    const muteLabel = el('div', 'muted')
-    muteLabel.textContent = 'Mute'
-    mute.onchange = () => {
-      if (!game) return
-      const s = game.getSnapshot()
-      const next = {
-        ...s,
-        settings: { ...s.settings, audioMuted: Boolean(mute.checked) } as any,
-      }
-      game.setSnapshot(next)
-      lastState = game.getSnapshot()
-    }
-    muteRow.append(mute, muteLabel)
-
     const slider = document.createElement('input')
     slider.type = 'range'
     slider.min = '0'
@@ -2099,7 +1991,6 @@ export function createUIStateMachine(args: UIArgs) {
     }
 
     audio.appendChild(slider)
-    audio.appendChild(muteRow)
 
     const nf = el('div')
     nf.style.marginTop = '12px'
@@ -2351,135 +2242,6 @@ export function createUIStateMachine(args: UIArgs) {
     const overlay = mountModal(panel)
     overlay.addEventListener('pointerdown', (e) => {
       if (e.target === overlay) overlay.remove()
-    })
-  }
-
-  async function showDailyContractsModal() {
-    if (!game || !lastState) return
-
-    const nowUTC = Date.now()
-    const info = getDailyContracts({ state: lastState, config, nowUTC })
-    if (info.state !== lastState) {
-      lastState = info.state
-      game.setSnapshot(info.state, 'soft')
-    }
-
-    const modal = el('div', 'panel')
-    modal.style.position = 'absolute'
-    modal.style.left = '50%'
-    modal.style.top = '10%'
-    modal.style.transform = 'translateX(-50%)'
-    modal.style.width = 'min(820px, calc(100vw - 24px))'
-    modal.style.pointerEvents = 'auto'
-
-    const h = el('div', 'panel-header')
-    h.textContent = 'DAILY CONTRACTS'
-
-    const b = el('div', 'panel-body')
-    b.style.lineHeight = '1.45'
-
-    const note = el('div', 'muted')
-    note.textContent = 'Resets at 00:00 UTC. Deterministic, no RNG.'
-    note.style.marginBottom = '10px'
-    b.appendChild(note)
-
-    let overlay: HTMLDivElement
-
-    const renderContract = (c: DailyContractView) => {
-      const card = el('div', 'panel')
-      card.style.marginBottom = '10px'
-
-      const ch = el('div', 'panel-header')
-      ch.textContent = c.titleEN
-
-      const cb = el('div', 'panel-body')
-
-      const desc = el('div', 'muted')
-      desc.textContent = c.descEN
-
-      const prog = el('div', 'muted')
-      prog.style.marginTop = '6px'
-      prog.innerHTML = `Progress: <span class="mono">${formatNumber(c.progress, lastState!.settings.numberFormat)}</span> / <span class="mono">${formatNumber(c.goal, lastState!.settings.numberFormat)}</span>`
-
-      const reward = el('div', 'muted')
-      reward.style.marginTop = '6px'
-      reward.innerHTML = `Reward: <span class="mono">${formatPaladyumInt(c.rewardPoints)}</span> Paladyum`
-
-      const row = el('div', 'stack')
-      row.style.marginTop = '10px'
-
-      const claimBtn = btn(c.claimed ? 'Claimed' : c.completed ? 'Claim' : 'Incomplete', 'btn btn-primary')
-      ;(claimBtn as HTMLButtonElement).disabled = c.claimed || !c.completed
-
-      claimBtn.onclick = () => {
-        void (async () => {
-          const g = game
-          if (!g || !lastState) return
-
-          const elBtn = claimBtn as HTMLButtonElement
-          if (elBtn.disabled) return
-
-          elBtn.disabled = true
-          const prevTxt = elBtn.textContent
-          elBtn.textContent = 'Claiming…'
-
-          try {
-            const res = claimDailyContract({
-              state: lastState,
-              config,
-              nowUTC: Date.now(),
-              contractId: c.id,
-            })
-            if (!res.claimed) {
-              elBtn.textContent = prevTxt
-              elBtn.disabled = false
-              flashFail(elBtn)
-              return
-            }
-
-            lastState = res.state
-            g.setSnapshot(res.state, 'soft')
-            saveSnapshot(config, res.state)
-
-            // Keep menu badge accurate even before the modal is closed.
-            refreshContractsBadgeGlobal?.()
-
-            // Menu Paladyum line is not reactive; force a re-render so it updates.
-            render()
-
-            overlay.remove()
-            await showDailyContractsModal()
-          } finally {
-            // If the modal is still open (e.g., claim failed), restore the button.
-            if (document.body.contains(elBtn)) {
-              if (!elBtn.disabled) elBtn.textContent = prevTxt
-            }
-          }
-        })()
-      }
-
-      row.appendChild(claimBtn)
-      cb.append(desc, prog, reward, row)
-      card.append(ch, cb)
-      return card
-    }
-
-    for (const c of info.contracts) b.appendChild(renderContract(c))
-
-    const close = btn('Close', 'btn')
-    close.onclick = () => {
-      overlay.remove()
-      render()
-    }
-    b.appendChild(close)
-
-    modal.append(h, b)
-    overlay = mountModal(modal)
-    overlay.addEventListener('pointerdown', (e) => {
-      if (e.target === overlay) {
-        overlay.remove()
-        render()
-      }
     })
   }
 
