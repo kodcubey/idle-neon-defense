@@ -135,27 +135,7 @@ export function createUIStateMachine(args: UIArgs) {
     )
   }
 
-  // Optional dev helper: add ?debugClicks=1 to the URL.
-  const debugClicks = (() => {
-    try {
-      return typeof location !== 'undefined' && new URLSearchParams(location.search).get('debugClicks') === '1'
-    } catch {
-      return false
-    }
-  })()
-
-  if (import.meta.env.DEV && debugClicks && !(window as any).__ng_debugClicksInstalled) {
-    ;(window as any).__ng_debugClicksInstalled = true
-    window.addEventListener(
-      'pointerdown',
-      (e) => {
-        const topEl = document.elementFromPoint(e.clientX, e.clientY)
-        // eslint-disable-next-line no-console
-        console.log('[debugClicks] target=', e.target, 'elementFromPoint=', topEl)
-      },
-      true,
-    )
-  }
+  // (Intentionally no debug/test logging in production UI.)
 
   const layer = el('div', 'ui-layer')
   root.appendChild(layer)
