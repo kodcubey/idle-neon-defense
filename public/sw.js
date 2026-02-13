@@ -1,5 +1,5 @@
 /* Minimal Service Worker to enable installability (PWA). */
-const CACHE = 'neon-grid-pwa-v4'
+const CACHE = 'neon-grid-pwa-v5'
 
 self.addEventListener('install', (event) => {
   self.skipWaiting()
@@ -10,9 +10,6 @@ self.addEventListener('install', (event) => {
         cache.addAll([
           '/',
           '/index.html',
-          '/game',
-          '/game/',
-          '/game/index.html',
           '/manifest.webmanifest',
           '/manifest.json',
           '/favicon.svg',
@@ -42,7 +39,7 @@ self.addEventListener('fetch', (event) => {
 
   // Navigations: network-first, fallback to cached shell.
   if (req.mode === 'navigate') {
-    const fallback = url.pathname.startsWith('/game') ? '/game/index.html' : '/index.html'
+    const fallback = '/index.html'
     event.respondWith(fetch(req).catch(() => caches.match(fallback)))
     return
   }

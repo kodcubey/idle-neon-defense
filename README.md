@@ -14,39 +14,12 @@ Web-first (desktop + mobile) deterministik idle tower defense prototipi.
 - Put your music file at `public/gamemusic.mp3`.
 - The game preloads it as Phaser audio key `bgm` and plays it in a loop.
 
-## Cloud Save (Firebase)
+## Save / Load (Encrypted localStorage)
 
-Client-only cloud sync is implemented with Firebase Auth + Firestore.
+The game stores progress in your browser via encrypted `localStorage`.
 
-- Create a Firebase project
-- Enable **Authentication** (Email/Password)
-- Create a **Firestore** database
-- Add a Web App in Firebase to get config values
-
-Create `.env.local`:
-
-- `VITE_FIREBASE_API_KEY=...`
-- `VITE_FIREBASE_AUTH_DOMAIN=...`
-- `VITE_FIREBASE_PROJECT_ID=...`
-- `VITE_FIREBASE_APP_ID=...`
-
-Optional:
-
-- `VITE_FIREBASE_STORAGE_BUCKET=...`
-- `VITE_FIREBASE_MESSAGING_SENDER_ID=...`
-
-In-game: **Settings** → **Cloud Save (Firebase)**.
-Auto-upload runs when the run ends (game over).
-
-### Firestore rules
-
-If you see `Missing or insufficient permissions`, your Firestore security rules are denying access.
-
-- Open Firebase Console → Firestore Database → Rules
-- Paste the contents of [firestore.rules](firestore.rules)
-
-Note: Username login (client-only) requires reading `/usernames/{username}` before auth.
-The rules allow `get` but deny `list` to reduce enumeration.
+- If you clear browser data (or uninstall the browser), your progress will be lost.
+- There is no cloud/database sync.
 
 ## Non‑negotiables
 

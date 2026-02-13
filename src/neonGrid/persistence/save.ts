@@ -1,7 +1,8 @@
 import type { DailyContractsState, GameConfig, GameState, Settings, Stats } from '../types'
 import { dayIndexUTC } from '../sim/deterministic'
+import { exportEncryptedSaveString, importEncryptedSaveFile } from './encryptedSaveFile'
 
-const STORAGE_KEY = 'neon-grid.save.v1'
+const LOCAL_SAVE_KEY = 'neon-grid:local-save:v1'
 
 function defaultSettings(): Settings {
   return {
@@ -97,23 +98,7 @@ export function createNewState(config: GameConfig, nowUTC: number): GameState {
   }
 }
 
-export function loadOrCreateSave(config: GameConfig, nowUTC: number): { state: GameState } {
-  const raw = localStorage.getItem(STORAGE_KEY)
-  if (!raw) return { state: createNewState(config, nowUTC) }
-
-  try {
-    const parsed = JSON.parse(raw) as GameState
-    if (!parsed || typeof parsed !== 'object') throw new Error('Invalid save')
-
-    // Minimal forward-compat: rehydrate missing fields deterministically.
-    const state = migrateAndFixup(config, parsed, nowUTC)
-    return { state }
-  } catch {
-    return { state: createNewState(config, nowUTC) }
-  }
-}
-
-function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): GameState {
+export function rehydrateImportedState(config: GameConfig, input: GameState, nowUTC: number): GameState {
   const base = createNewState(config, nowUTC)
   const merged: GameState = {
     ...base,
@@ -247,12 +232,12 @@ function migrateAndFixup(config: GameConfig, input: GameState, nowUTC: number): 
   return merged
 }
 
-export function saveSnapshot(config: GameConfig, state: GameState) {
-  // Explicitly persist only the known schema fields.
+export function buildSaveSnapshot(config: GameConfig, state: GameState, nowUTC: number = Date.now()): GameState {
+  // Explicitly include only the known schema fields.
   // This drops any legacy/unknown properties that may exist in older saves.
-  const snapshot: GameState = {
+  return {
     version: config.version,
-    lastSaveTimestampUTC: Date.now(),
+    lastSaveTimestampUTC: nowUTC,
 
     wave: state.wave,
     gold: state.gold,
@@ -275,26 +260,49 @@ export function saveSnapshot(config: GameConfig, state: GameState) {
 
     dailyContracts: state.dailyContracts ? JSON.parse(JSON.stringify(state.dailyContracts)) : undefined,
   }
-
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
 }
 
-export function exportSave(): string {
-  const raw = localStorage.getItem(STORAGE_KEY)
-  return raw ?? ''
-}
+let saveTimer: number | null = null
+let latestToPersist: { config: GameConfig; snapshot: GameState } | null = null
 
-export function importSave(raw: string): boolean {
+export async function loadOrCreateSave(config: GameConfig, nowUTC: number): Promise<GameState> {
   try {
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return false
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed))
-    return true
+    const raw = localStorage.getItem(LOCAL_SAVE_KEY)
+    if (raw && raw.trim()) {
+      const imported = await importEncryptedSaveFile(config, raw)
+      return rehydrateImportedState(config, imported, nowUTC)
+    }
   } catch {
-    return false
+    // Ignore storage / crypto errors and fall back to a fresh state.
+  }
+  return createNewState(config, nowUTC)
+}
+
+export function clearLocalSave() {
+  try {
+    localStorage.removeItem(LOCAL_SAVE_KEY)
+  } catch {
+    // ignore
   }
 }
 
-export function clearSave() {
-  localStorage.removeItem(STORAGE_KEY)
+export function saveSnapshot(config: GameConfig, state: GameState) {
+  // Throttle to avoid encrypting/writing on every sim tick.
+  latestToPersist = { config, snapshot: buildSaveSnapshot(config, state, Date.now()) }
+
+  if (saveTimer != null) return
+  saveTimer = window.setTimeout(() => {
+    saveTimer = null
+    const job = latestToPersist
+    latestToPersist = null
+    if (!job) return
+    void (async () => {
+      try {
+        const text = await exportEncryptedSaveString(job.config, job.snapshot)
+        localStorage.setItem(LOCAL_SAVE_KEY, text)
+      } catch {
+        // ignore (storage full / blocked / crypto unavailable)
+      }
+    })()
+  }, 650)
 }

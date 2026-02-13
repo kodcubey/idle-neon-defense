@@ -1,7 +1,6 @@
 import type { GameConfig, GameState, OfflineProgressResult, RunSummary, TowerUpgradeKey, WaveReport } from '../types'
 import type { NeonGridGame } from '../phaser/createGame'
 import type { SimPublic } from '../sim/SimEngine'
-import { applyCloudMetaToState, type FirebaseSync } from '../persistence/firebaseSync'
 import { createNewState, saveSnapshot } from '../persistence/save'
 import { btn, clear, el, hr, kv } from './dom'
 import { formatNumber, formatPaladyumInt, formatPct, formatTimeMMSS } from './format'
@@ -28,30 +27,17 @@ import { calcBaseHPMax } from '../sim/actions'
 import { metaUpgradeCostPoints, moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from '../sim/costs'
 import { claimDailyContract, getDailyContracts, type DailyContractView } from '../sim/contracts'
 
-export type UIScreen = 'boot' | 'menu' | 'login' | 'hud' | 'modules' | 'settings' | 'stats' | 'offline'
+export type UIScreen = 'boot' | 'menu' | 'hud' | 'modules' | 'settings' | 'stats' | 'offline'
 
 type UIArgs = {
   root: HTMLElement
   config: GameConfig
   initialState: UIScreen
   offlineResult: OfflineProgressResult
-  firebaseSync?: FirebaseSync
 }
 
 export function createUIStateMachine(args: UIArgs) {
   const { root, config } = args
-  const firebaseSync: FirebaseSync | null = args.firebaseSync ?? null
-
-  let registerUsername = ''
-  let registerEmail = ''
-  let registerPassword = ''
-  let registerRePassword = ''
-  let loginIdentifier = ''
-  let loginPassword = ''
-
-  let authUsername: string | null = null
-  let initialCloudSyncDone = false
-  let initialCloudSyncInProgress = false
   let resetRequested = false
 
   let refreshContractsBadgeGlobal: (() => void) | null = null
@@ -196,31 +182,6 @@ export function createUIStateMachine(args: UIArgs) {
 
   layer.append(top, center, bottom)
 
-  // Keep Settings status in sync with auth state.
-  // IMPORTANT: this must run after `top/center/bottom` are initialized,
-  // otherwise `render()` would touch `top` in its temporal-dead-zone.
-  if (firebaseSync && !(root as any).__ngFirebaseAuthListenerInstalled) {
-    ;(root as any).__ngFirebaseAuthListenerInstalled = true
-    firebaseSync.onAuthChanged(() => {
-      const st = firebaseSync.getStatus()
-      if (!st.signedIn) {
-        authUsername = null
-        initialCloudSyncDone = false
-        initialCloudSyncInProgress = false
-
-        // On sign-out, fully reset local meta/progression so the next
-        // sign-in starts from the correct user's cloud data.
-        if (game) {
-          setFreshLocalSnapshot(true)
-        } else {
-          resetRequested = true
-        }
-      }
-      render()
-      void maybeInitialCloudSync()
-    })
-  }
-
   function setFreshLocalSnapshot(forceMenuPause: boolean) {
     if (!game) return
     const fresh = createNewState(config, Date.now())
@@ -274,50 +235,6 @@ export function createUIStateMachine(args: UIArgs) {
       return await task()
     } finally {
       overlay.remove()
-    }
-  }
-
-  async function maybeInitialCloudSync(): Promise<void> {
-    if (!firebaseSync) return
-    const st = firebaseSync.getStatus()
-    if (!st.configured || !st.signedIn) return
-    if (initialCloudSyncDone || initialCloudSyncInProgress) return
-    if (!game) return
-
-    initialCloudSyncInProgress = true
-    try {
-      await withLoading(async () => {
-        // Always start from a clean local state for the signed-in user
-        // to avoid mixing previous user's meta into this session.
-        setFreshLocalSnapshot(true)
-
-        // First login in this session:
-        // - If no cloud doc exists: create it from local snapshot.
-        // - If it exists: pull from cloud and apply locally.
-        const cloudMeta = await firebaseSync.downloadMeta()
-        if (!cloudMeta) {
-          await firebaseSync.uploadMetaFromState(game!.getSnapshot())
-        } else {
-          const cur = game!.getSnapshot()
-          game!.setSnapshot(applyCloudMetaToState(cur, cloudMeta))
-          lastState = game!.getSnapshot()
-        }
-
-        // Never auto-start gameplay due to auth/sync.
-        game!.setPaused(true)
-        screen = 'menu'
-
-        try {
-          authUsername = await firebaseSync.getUsername()
-        } catch {
-          authUsername = null
-        }
-      })
-
-      initialCloudSyncDone = true
-      render()
-    } finally {
-      initialCloudSyncInProgress = false
     }
   }
 
@@ -435,7 +352,7 @@ export function createUIStateMachine(args: UIArgs) {
 
   function setScreen(next: UIScreen) {
     screen = next
-    if (game && (next === 'menu' || next === 'login' || next === 'boot' || next === 'offline')) {
+    if (game && (next === 'menu' || next === 'boot' || next === 'offline')) {
       game.setPaused(true)
     }
     if (game && next === 'hud') {
@@ -449,7 +366,7 @@ export function createUIStateMachine(args: UIArgs) {
     cleanupStaleModalOverlays()
 
     // Hard guarantee: home-related screens never run gameplay.
-    if (game && (screen === 'menu' || screen === 'login' || screen === 'boot' || screen === 'offline')) {
+    if (game && (screen === 'menu' || screen === 'boot' || screen === 'offline')) {
       game.setPaused(true)
     }
 
@@ -470,11 +387,6 @@ export function createUIStateMachine(args: UIArgs) {
 
     if (screen === 'menu') {
       renderMenu()
-      return
-    }
-
-    if (screen === 'login') {
-      renderLogin()
       return
     }
 
@@ -550,37 +462,16 @@ export function createUIStateMachine(args: UIArgs) {
 
     const body = el('div', 'panel-body')
 
-    const authLine = (() => {
-      const st = firebaseSync?.getStatus()
-      const line = el('div', 'muted')
-      if (!firebaseSync) return null
-      if (!st?.configured) {
-        line.textContent = 'Firebase not configured.'
-        return line
-      }
-      if (!st.signedIn) {
-        line.textContent = 'Not signed in.'
-        return line
-      }
-
-      const uname = authUsername?.trim()
-      line.textContent = `Signed in as: ${uname ? uname : st.email ?? 'user'}`
-      return line
-    })()
-
     const desc = el('div', 'muted')
     desc.textContent = 'No RNG: All outcomes are deterministic. Wave duration is fixed.'
 
-    const balances = (() => {
-      const st = firebaseSync?.getStatus()
-      if (!firebaseSync || !st?.configured || !st.signedIn) return null
+    const bal = el('div', 'muted')
+    bal.style.marginTop = '8px'
+    bal.innerHTML = `Paladyum: <span class="mono">${formatPaladyumInt(Math.max(0, Number((lastState as any)?.points ?? 0)))}</span>`
 
-      const balances = el('div', 'muted')
-      balances.style.marginTop = '10px'
-      const pal = lastState?.points ?? 0
-      balances.innerHTML = `Paladyum: <span class="mono">${formatPaladyumInt(pal)}</span>`
-      return balances
-    })()
+    const warn = el('div', 'muted')
+    warn.style.marginTop = '6px'
+    warn.textContent = 'Your progress is saved in your browser. If you clear your browser data, your progress will be lost.'
 
     const row = el('div', 'ng-menu-actions')
     row.style.marginTop = '12px'
@@ -660,60 +551,16 @@ export function createUIStateMachine(args: UIArgs) {
       </svg>
     `
 
-    const requireLogin = (): boolean => {
-      if (!firebaseSync) {
-        alert('Login is unavailable.')
-        return false
-      }
-      const st = firebaseSync.getStatus()
-      if (!st.configured) {
-        alert('Login is unavailable.')
-        return false
-      }
-      if (!st.signedIn) {
-        alert("You must log in. If you don't have an account, please sign up.")
-        setScreen('login')
-        return false
-      }
-      return true
-    }
-
     const newRun = menuBtn('New Run', iconPlay, 'lime')
     newRun.onclick = () => {
-      void (async () => {
-        if (!game) return
-
-        const st = firebaseSync?.getStatus()
-        const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
-        if (canCloud) {
-          try {
-            await withLoading(async () => {
-              game!.setPaused(true)
-              await maybeInitialCloudSync()
-
-              const cloudMeta = await firebaseSync!.downloadMeta()
-              if (!cloudMeta) {
-                await firebaseSync!.uploadMetaFromState(game!.getSnapshot())
-              } else {
-                const cur = game!.getSnapshot()
-                game!.setSnapshot(applyCloudMetaToState(cur, cloudMeta))
-                lastState = game!.getSnapshot()
-              }
-            })
-          } catch (e) {
-            alert(String((e as any)?.message ?? e))
-          }
-        }
-
-        game.newRun()
-        setScreen('hud')
-      })()
+      if (!game) return
+      game.newRun()
+      setScreen('hud')
     }
 
     const modules = menuBtn('Modules', iconGrid, 'cyan')
     modules.onclick = () => {
       void (async () => {
-        if (!requireLogin()) return
         if (game) game.setPaused(true)
         await showModulesModal()
       })()
@@ -721,7 +568,6 @@ export function createUIStateMachine(args: UIArgs) {
 
     const stats = menuBtn('Stats', iconChart, 'cyan')
     stats.onclick = () => {
-      if (!requireLogin()) return
       if (game) game.setPaused(true)
       showStatsModal()
     }
@@ -740,7 +586,6 @@ export function createUIStateMachine(args: UIArgs) {
 
     const tower = menuBtn('Tower', iconTower, 'magenta')
     tower.onclick = () => {
-      if (!requireLogin()) return
       if (game) game.setPaused(true)
       showTowerModal()
     }
@@ -748,7 +593,6 @@ export function createUIStateMachine(args: UIArgs) {
     const metaUpg = menuBtn('Meta Upgrades', iconHex, 'lime')
     metaUpg.onclick = () => {
       if (!lastState) return
-      if (!requireLogin()) return
       void showMetaUpgradesModal()
     }
 
@@ -807,137 +651,11 @@ export function createUIStateMachine(args: UIArgs) {
     `
     about.append(ch, cb)
 
-    const authPanel = (() => {
-      const st = firebaseSync?.getStatus()
-      if (!firebaseSync || !st?.configured) return null
-      if (st.signedIn) return null
-
-      const authPanel = el('div', 'panel')
-      authPanel.style.marginTop = '12px'
-      const ah = el('div', 'panel-header')
-      ah.textContent = 'Register'
-      const ab = el('div', 'panel-body')
-
-      const uname = document.createElement('input')
-      uname.type = 'text'
-      uname.placeholder = 'Username…'
-      uname.value = registerUsername
-      uname.oninput = () => {
-        registerUsername = uname.value
-      }
-
-      const email = document.createElement('input')
-      email.type = 'email'
-      email.placeholder = 'Email…'
-      email.value = registerEmail
-      email.oninput = () => {
-        registerEmail = email.value
-      }
-
-      const pass = document.createElement('input')
-      pass.type = 'password'
-      pass.placeholder = 'Password…'
-      pass.value = registerPassword
-      pass.oninput = () => {
-        registerPassword = pass.value
-      }
-
-      const repass = document.createElement('input')
-      repass.type = 'password'
-      repass.placeholder = 'Re-enter password…'
-      repass.value = registerRePassword
-      repass.oninput = () => {
-        registerRePassword = repass.value
-      }
-
-      const formRow1 = el('div', 'stack')
-      formRow1.append(uname, email)
-      const formRow2 = el('div', 'stack')
-      formRow2.style.marginTop = '8px'
-      formRow2.append(pass, repass)
-
-      const actions = el('div', 'stack')
-      actions.style.marginTop = '10px'
-      const registerBtn = btn('Register', 'btn btn-primary')
-      registerBtn.onclick = async () => {
-        try {
-          if (registerPassword !== registerRePassword) {
-            alert('Passwords do not match.')
-            return
-          }
-          await withLoading(async () => {
-            game?.setPaused(true)
-            await firebaseSync?.signUpUsernameEmailPassword(registerUsername, registerEmail, registerPassword)
-            await maybeInitialCloudSync()
-          })
-          alert('Registered.')
-          registerPassword = ''
-          registerRePassword = ''
-          render()
-        } catch (e) {
-          alert(String((e as any)?.message ?? e))
-        }
-      }
-
-      const goLogin = btn('Go to Login', 'btn')
-      goLogin.onclick = () => setScreen('login')
-
-      actions.append(registerBtn, goLogin)
-
-      ab.append(formRow1, formRow2, actions)
-      authPanel.append(ah, ab)
-      return authPanel
-    })()
-
-    const signedInPanel = (() => {
-      const st = firebaseSync?.getStatus()
-      if (!firebaseSync || !st?.configured) return null
-      if (!st.signedIn) return null
-
-      const p = el('div', 'panel')
-      p.style.marginTop = '12px'
-      const ph = el('div', 'panel-header')
-      ph.textContent = 'Account'
-      const pb = el('div', 'panel-body')
-
-      const uname = authUsername?.trim()
-      const l = el('div', 'muted')
-      l.textContent = `Username: ${uname ? uname : '—'}`
-
-      const actions = el('div', 'stack')
-      actions.style.marginTop = '10px'
-      const signOut = btn('Sign out', 'btn btn-danger')
-      signOut.onclick = async () => {
-        try {
-          await withLoading(async () => {
-            await firebaseSync.signOut()
-          })
-          setFreshLocalSnapshot(true)
-          alert('Signed out.')
-          render()
-        } catch (e) {
-          alert(String((e as any)?.message ?? e))
-        }
-      }
-      actions.append(signOut)
-
-      pb.append(l, actions)
-      p.append(ph, pb)
-      return p
-    })()
-
     const topInfo = el('div')
-    if (authLine) {
-      authLine.style.marginTop = '10px'
-      topInfo.appendChild(authLine)
-    }
     desc.style.marginTop = '6px'
-    topInfo.appendChild(desc)
-    if (balances) topInfo.appendChild(balances)
+    topInfo.append(desc, bal, warn)
 
     body.append(topInfo, row, about)
-    if (authPanel) body.appendChild(authPanel)
-    if (signedInPanel) body.appendChild(signedInPanel)
 
     panel.append(header, body)
     layout.appendChild(panel)
@@ -946,28 +664,6 @@ export function createUIStateMachine(args: UIArgs) {
 
   async function showMetaUpgradesModal() {
     if (!lastState || !game) return
-
-    const g = game
-
-    const refreshMetaFromCloud = async (opts?: { showSpinner?: boolean }) => {
-      if (!firebaseSync) return
-      const st = firebaseSync.getStatus()
-      if (!st.configured || !st.signedIn) return
-
-      const task = async () => {
-        const cloudMeta = await firebaseSync.downloadMeta()
-        if (!cloudMeta) return
-        const cur = g.getSnapshot()
-        g.setSnapshot(applyCloudMetaToState(cur, cloudMeta))
-        lastState = g.getSnapshot()
-      }
-
-      if (opts?.showSpinner) await withLoading(task)
-      else await task()
-    }
-
-    // On every open, re-fetch Paladyum/meta from the DB.
-    await refreshMetaFromCloud({ showSpinner: true })
 
     const modal = el('div', 'panel ng-meta-modal')
     modal.style.width = 'min(760px, calc(100vw - 20px))'
@@ -980,15 +676,7 @@ export function createUIStateMachine(args: UIArgs) {
     const overlay = mountModal(modal)
     close.onclick = () => {
       overlay.remove()
-
-      // On close, pull again (no spinner) so the menu Paladyum stays in sync.
-      void (async () => {
-        try {
-          await refreshMetaFromCloud()
-        } finally {
-          render()
-        }
-      })()
+      render()
     }
     h.append(title, close)
 
@@ -1094,36 +782,11 @@ export function createUIStateMachine(args: UIArgs) {
 
         let buyOk = false
         await withLoading(async () => {
-          // Refresh from DB before the purchase so costs/points are up to date.
-          const st = firebaseSync?.getStatus?.()
-          if (firebaseSync && st?.configured && st?.signedIn) {
-            const cloudMeta = await firebaseSync.downloadMeta()
-            if (cloudMeta) {
-              const cur = g.getSnapshot()
-              g.setSnapshot(applyCloudMetaToState(cur, cloudMeta))
-            }
-          }
-
           buyOk = Boolean((g as any).buyMetaUpgrade?.(key, amt))
           if (!buyOk) return
 
-          // Persist locally immediately.
-          const afterBuy = g.getSnapshot()
-          saveSnapshot(config, afterBuy)
-
-          // Push + re-pull meta so Paladyum reflects the DB after spending.
-          if (firebaseSync && st?.configured && st?.signedIn) {
-            await firebaseSync.uploadMetaFromState(afterBuy)
-            const cloudMeta2 = await firebaseSync.downloadMeta()
-            if (cloudMeta2) {
-              const cur2 = g.getSnapshot()
-              g.setSnapshot(applyCloudMetaToState(cur2, cloudMeta2))
-            }
-          }
-
-          const finalSnap = g.getSnapshot()
-          saveSnapshot(config, finalSnap)
-          lastState = finalSnap
+          // No persistence by design.
+          lastState = g.getSnapshot()
         })
 
         if (!buyOk) {
@@ -1166,89 +829,6 @@ export function createUIStateMachine(args: UIArgs) {
     overlay.addEventListener('pointerdown', (e) => {
       if (e.target === overlay) overlay.remove()
     })
-  }
-
-  function renderLogin() {
-    const panel = el('div', 'panel')
-    panel.style.maxWidth = '560px'
-    panel.style.margin = 'auto'
-    panel.style.pointerEvents = 'auto'
-
-    const header = el('div', 'panel-header')
-    header.appendChild(el('div')).textContent = 'Login'
-
-    const back = btn('Back', 'btn')
-    back.onclick = () => setScreen('menu')
-    header.appendChild(back)
-
-    const body = el('div', 'panel-body')
-
-    const st = firebaseSync?.getStatus()
-    const statusLine = el('div', 'muted')
-    if (!firebaseSync) {
-      statusLine.textContent = 'Account sync unavailable.'
-    } else if (!st?.configured) {
-      statusLine.textContent = 'Firebase not configured. Add VITE_FIREBASE_* env vars and reload.'
-    } else {
-      statusLine.textContent = `Status: ${st.signedIn ? `Signed in as ${st.email ?? 'user'}` : 'Signed out'}`
-    }
-
-    if (st?.signedIn) {
-      const note = el('div', 'muted')
-      note.style.marginTop = '8px'
-      const uname = authUsername?.trim()
-      note.textContent = `Already signed in${uname ? ` as ${uname}` : ''}.`
-      body.append(statusLine, note)
-      panel.append(header, body)
-      center.appendChild(panel)
-      return
-    }
-
-    const id = document.createElement('input')
-    id.type = 'text'
-    id.placeholder = 'Username or email…'
-    id.value = loginIdentifier
-    id.oninput = () => {
-      loginIdentifier = id.value
-    }
-
-    const pass = document.createElement('input')
-    pass.type = 'password'
-    pass.placeholder = 'Password…'
-    pass.value = loginPassword
-    pass.oninput = () => {
-      loginPassword = pass.value
-    }
-
-    const row1 = el('div', 'stack')
-    row1.append(id, pass)
-
-    const actions = el('div', 'stack')
-    actions.style.marginTop = '10px'
-    const signIn = btn('Sign in', 'btn btn-primary')
-    signIn.onclick = async () => {
-      try {
-        await withLoading(async () => {
-          game?.setPaused(true)
-          await firebaseSync?.signInUsernameOrEmail(loginIdentifier, loginPassword)
-          await maybeInitialCloudSync()
-        })
-        alert('Signed in.')
-        setScreen('menu')
-      } catch (e) {
-        alert(String((e as any)?.message ?? e))
-      }
-    }
-
-    actions.append(signIn)
-
-    const note = el('div', 'muted')
-    note.style.marginTop = '8px'
-    note.textContent = 'Use your username or email.'
-
-    body.append(statusLine, row1, actions, note)
-    panel.append(header, body)
-    center.appendChild(panel)
   }
 
   function renderHUD(overlayActive: boolean) {
@@ -1302,7 +882,6 @@ export function createUIStateMachine(args: UIArgs) {
       game.setSnapshot(contractsInfo.state, 'soft')
     }
 
-    const lang = (lastState?.settings as any)?.language === 'tr' ? 'tr' : 'en'
     const contractsBox = el('div', 'hud-contracts')
 
     const doneCount = contractsInfo.contracts.filter((c) => c.completed).length
@@ -1310,7 +889,7 @@ export function createUIStateMachine(args: UIArgs) {
     const contractsTitle = el('div', 'muted')
     contractsTitle.style.fontWeight = '900'
     contractsTitle.style.marginTop = '8px'
-    contractsTitle.innerHTML = `${lang === 'tr' ? 'Günlük Kontratlar' : 'Daily Contracts'}: <span class="mono">${doneCount}/${contractsInfo.contracts.length}</span> ${lang === 'tr' ? 'tamamlandı' : 'completed'} • <span class="mono">${claimedCount}/${contractsInfo.contracts.length}</span> ${lang === 'tr' ? 'alındı' : 'claimed'}`
+    contractsTitle.innerHTML = `Daily Contracts: <span class="mono">${doneCount}/${contractsInfo.contracts.length}</span> completed • <span class="mono">${claimedCount}/${contractsInfo.contracts.length}</span> claimed`
 
     const list = el('div', 'muted')
     list.style.fontSize = '12px'
@@ -1318,8 +897,8 @@ export function createUIStateMachine(args: UIArgs) {
 
     for (const c of contractsInfo.contracts) {
       const line = el('div')
-      const name = lang === 'tr' ? c.titleTR : c.titleEN
-      const status = c.claimed ? (lang === 'tr' ? 'ALINDI' : 'CLAIMED') : c.completed ? (lang === 'tr' ? 'HAZIR' : 'READY') : ''
+      const name = c.titleEN
+      const status = c.claimed ? 'CLAIMED' : c.completed ? 'READY' : ''
       const statusColor = c.claimed ? 'var(--muted)' : c.completed ? 'var(--neon-lime)' : 'var(--muted)'
       const statusHtml = status ? ` <span class="mono" style="color:${statusColor}">[${status}]</span>` : ''
       line.innerHTML = `• ${name}: <span class="mono">${formatNumber(c.progress, lastState?.settings.numberFormat ?? 'suffix')}</span>/<span class="mono">${formatNumber(c.goal, lastState?.settings.numberFormat ?? 'suffix')}</span>${statusHtml}`
@@ -1371,25 +950,6 @@ export function createUIStateMachine(args: UIArgs) {
         game.setPaused(true)
         const snapshot = game.getSnapshot()
         lastState = snapshot
-
-        // Always persist locally; and if signed in, upload meta now so
-        // subsequent cloud pulls (e.g., Continue) can't overwrite progress.
-        const st = firebaseSync?.getStatus()
-        const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
-
-        if (canCloud) {
-          try {
-            await withLoading(async () => {
-              saveSnapshot(config, snapshot)
-              await firebaseSync!.uploadMetaFromState(snapshot)
-            })
-          } catch (e) {
-            // If cloud save fails, keep local progress and still go to menu.
-            alert(String((e as any)?.message ?? e))
-          }
-        } else {
-          saveSnapshot(config, snapshot)
-        }
 
         setScreen('menu')
       })()
@@ -1861,6 +1421,10 @@ export function createUIStateMachine(args: UIArgs) {
 
     const g = game
 
+    // Cloud/auth persistence was removed. Keep these as no-ops to simplify UI logic.
+    const shouldCloudSyncOnEquip = () => false
+    const persistMetaAfterLocalChange = async () => {}
+
     const panel = el('div', 'panel')
     panel.style.maxWidth = '1180px'
     panel.style.margin = '0 auto'
@@ -1929,20 +1493,6 @@ export function createUIStateMachine(args: UIArgs) {
       return null
     }
 
-    const shouldCloudSyncOnEquip = () => {
-      if (!firebaseSync) return false
-      const st = firebaseSync.getStatus()
-      return !!st.configured && !!st.signedIn
-    }
-
-    const persistMetaAfterLocalChange = async () => {
-      const snapshot = g.getSnapshot()
-      saveSnapshot(config, snapshot)
-      if (shouldCloudSyncOnEquip()) {
-        await firebaseSync!.uploadMetaFromState(snapshot)
-      }
-    }
-
     const setEquip = async (slot: number, id: string | null): Promise<boolean> => {
       if (!game) return false
 
@@ -1951,26 +1501,6 @@ export function createUIStateMachine(args: UIArgs) {
         if (!ok) return false
         lastState = game!.getSnapshot()
         return true
-      }
-
-      // If signed-in, treat equip/unequip as a meta change that should be
-      // persisted immediately (and show loading until done).
-      if (shouldCloudSyncOnEquip()) {
-        try {
-          const ok = await withLoading(async () => {
-            const localOk = doLocal()
-            if (!localOk) return false
-            await firebaseSync!.uploadMetaFromState(game!.getSnapshot())
-            return true
-          })
-          args.rerender()
-          return ok
-        } catch (e) {
-          alert(String((e as any)?.message ?? e))
-          lastState = game.getSnapshot()
-          args.rerender()
-          return false
-        }
       }
 
       const ok = doLocal()
@@ -2377,50 +1907,9 @@ export function createUIStateMachine(args: UIArgs) {
   async function showModulesModal() {
     if (!game || !lastState) return
 
-    const g = game
-
-    const refreshMetaFromCloud = async (opts?: { showSpinner?: boolean }) => {
-      const st = firebaseSync?.getStatus()
-      const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
-      if (!canCloud) return
-
-      const task = async () => {
-        await maybeInitialCloudSync()
-        const cloudMeta = await firebaseSync!.downloadMeta()
-        if (!cloudMeta) {
-          // Best-effort: if doc doesn't exist, create it from local.
-          await firebaseSync!.uploadMetaFromState(g.getSnapshot())
-          return
-        }
-        const cur = g.getSnapshot()
-        g.setSnapshot(applyCloudMetaToState(cur, cloudMeta))
-        lastState = g.getSnapshot()
-      }
-
-      if (opts?.showSpinner) await withLoading(task)
-      else await task()
-    }
-
-    // On every open, re-fetch meta from the DB.
-    try {
-      await refreshMetaFromCloud({ showSpinner: true })
-    } catch (e) {
-      alert(String((e as any)?.message ?? e))
-    }
-
     const closeAndRefresh = () => {
       overlay.remove()
-
-      // On close, pull again (no spinner) so the menu Paladyum stays in sync.
-      void (async () => {
-        try {
-          await refreshMetaFromCloud()
-        } catch {
-          // ignore
-        } finally {
-          render()
-        }
-      })()
+      render()
     }
 
     const panel = buildModulesPanel({
@@ -2562,50 +2051,6 @@ export function createUIStateMachine(args: UIArgs) {
 
     const body = el('div', 'panel-body')
 
-    let settingsSyncInProgress = false
-    let settingsSyncQueued = false
-    const canCloudSyncSettings = () => {
-      if (!firebaseSync) return false
-      const st = firebaseSync.getStatus()
-      return !!st.configured && !!st.signedIn
-    }
-    const persistLocal = () => {
-      if (!game) return
-      saveSnapshot(config, game.getSnapshot())
-    }
-
-    const syncSettingsWithCloud = async (): Promise<void> => {
-      if (!canCloudSyncSettings()) return
-      if (!game) return
-
-      if (settingsSyncInProgress) {
-        settingsSyncQueued = true
-        return
-      }
-
-      settingsSyncInProgress = true
-      try {
-        await withLoading(async () => {
-          // Upload current local snapshot.
-          await firebaseSync!.uploadMetaFromState(game!.getSnapshot())
-
-          // Immediately pull back to confirm & refresh local copy.
-          const cloudMeta = await firebaseSync!.downloadMeta()
-          if (cloudMeta) {
-            const cur = game!.getSnapshot()
-            game!.setSnapshot(applyCloudMetaToState(cur, cloudMeta))
-            lastState = game!.getSnapshot()
-          }
-        })
-      } finally {
-        settingsSyncInProgress = false
-        if (settingsSyncQueued) {
-          settingsSyncQueued = false
-          void syncSettingsWithCloud()
-        }
-      }
-    }
-
     const audio = el('div')
     audio.innerHTML = `<div style="font-weight:800">Audio</div>`
 
@@ -2629,8 +2074,6 @@ export function createUIStateMachine(args: UIArgs) {
       }
       game.setSnapshot(next)
       lastState = game.getSnapshot()
-      persistLocal()
-      void syncSettingsWithCloud()
     }
     muteRow.append(mute, muteLabel)
 
@@ -2649,13 +2092,10 @@ export function createUIStateMachine(args: UIArgs) {
       }
       game.setSnapshot(next)
       lastState = game.getSnapshot()
-      persistLocal()
     }
 
     slider.onchange = () => {
       if (!game || !lastState) return
-      // Only sync to Firestore on release to avoid spamming writes.
-      void syncSettingsWithCloud()
     }
 
     audio.appendChild(slider)
@@ -2687,8 +2127,6 @@ export function createUIStateMachine(args: UIArgs) {
       }
       game.setSnapshot(next)
       lastState = game.getSnapshot()
-      persistLocal()
-      void syncSettingsWithCloud()
       markNF()
       args.rerender()
     }
@@ -2701,8 +2139,6 @@ export function createUIStateMachine(args: UIArgs) {
       }
       game.setSnapshot(next)
       lastState = game.getSnapshot()
-      persistLocal()
-      void syncSettingsWithCloud()
       markNF()
       args.rerender()
     }
@@ -3011,19 +2447,6 @@ export function createUIStateMachine(args: UIArgs) {
             // Menu Paladyum line is not reactive; force a re-render so it updates.
             render()
 
-            // If signed in, upload immediately so contracts continue across devices.
-            const st = firebaseSync?.getStatus()
-            const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
-            if (canCloud) {
-              try {
-                await withLoading(async () => {
-                  await firebaseSync!.uploadMetaFromState(g.getSnapshot())
-                })
-              } catch (e) {
-                alert(String((e as any)?.message ?? e))
-              }
-            }
-
             overlay.remove()
             await showDailyContractsModal()
           } finally {
@@ -3174,12 +2597,6 @@ export function createUIStateMachine(args: UIArgs) {
 
           // Offline collection should never start gameplay automatically.
           g.setPaused(true)
-
-          // If signed in, upload meta so offline Paladyum is synced.
-          const st = firebaseSync?.getStatus()
-          if (firebaseSync && st?.configured && st.signedIn) {
-            await firebaseSync.uploadMetaFromState(g.getSnapshot())
-          }
         })
 
         overlay.remove()
@@ -3237,27 +2654,6 @@ export function createUIStateMachine(args: UIArgs) {
         const snapshot = game.getSnapshot()
         lastState = snapshot
 
-        const st = firebaseSync?.getStatus()
-        const canCloud = !!firebaseSync && !!st?.configured && !!st?.signedIn
-
-        // Prevent double-clicks while saving.
-        menu.disabled = true
-        try {
-          if (canCloud) {
-            await withLoading(async () => {
-              saveSnapshot(config, snapshot)
-              await firebaseSync!.uploadMetaFromState(snapshot)
-            })
-          } else {
-            saveSnapshot(config, snapshot)
-          }
-        } catch (e) {
-          // Keep local progress and still go to menu.
-          alert(String((e as any)?.message ?? e))
-        } finally {
-          menu.disabled = false
-        }
-
         overlay.remove()
         setScreen('menu')
       })()
@@ -3295,9 +2691,6 @@ export function createUIStateMachine(args: UIArgs) {
       setFreshLocalSnapshot(true)
     }
     render()
-
-    // If a user is already signed in (persisted auth), perform one-time cloud sync.
-    void maybeInitialCloudSync()
 
     // Boot into menu if needed.
     if (screen === 'boot') render()

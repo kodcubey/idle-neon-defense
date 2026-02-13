@@ -1,7 +1,7 @@
 {
   "name": "Idle Tower Defense",
   "short_name": "Idle Tower Defense",
-  "start_url": "/game/",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#000000",
