@@ -19,7 +19,7 @@ export function clear(node: HTMLElement) {
 export function hr(): HTMLDivElement {
   const d = el('div')
   d.style.height = '1px'
-  d.style.background = 'rgba(34,245,255,0.14)'
+  d.style.background = 'rgba(0,229,255,0.08)'
   d.style.margin = '10px 0'
   return d
 }

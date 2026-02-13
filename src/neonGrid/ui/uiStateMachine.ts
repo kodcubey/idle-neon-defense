@@ -376,32 +376,35 @@ export function createUIStateMachine(args: UIArgs) {
   }
 
   function renderBoot() {
-    const panel = el('div', 'panel')
-    panel.style.maxWidth = '520px'
-    panel.style.margin = 'auto'
+    const wrap = el('div', 'ng-menu-layout')
+
+    const panel = el('div', 'panel ng-menu')
     panel.style.pointerEvents = 'auto'
 
     const header = el('div', 'panel-header')
-    const title = el('div')
+    const title = el('div', 'ng-menu-title')
     title.textContent = 'NEON GRID'
     header.appendChild(title)
 
-    const badge = el('div', 'muted')
-    badge.textContent = 'No RNG / Deterministic'
+    const badge = el('div', 'muted mono')
+    badge.style.fontSize = '10px'
+    badge.textContent = 'NO RNG'
     header.appendChild(badge)
 
     const body = el('div', 'panel-body')
-    const p = el('div')
-    p.textContent = 'Starting deterministic simulation…'
-    p.style.marginBottom = '10px'
+    const p = el('div', 'muted')
+    p.textContent = 'Initializing deterministic simulation…'
+    p.style.marginBottom = '12px'
 
     const bar = el('div', 'bar')
+    bar.style.height = '4px'
     const fill = el('div', 'fill')
     fill.style.width = '0%'
     bar.appendChild(fill)
 
     const tip = el('div', 'muted')
-    tip.style.marginTop = '10px'
+    tip.style.marginTop = '12px'
+    tip.style.fontSize = '11px'
 
     const tips = config.ui.tipsTR
     const dayIndex = Math.floor(Date.now() / 86400_000)
@@ -409,7 +412,8 @@ export function createUIStateMachine(args: UIArgs) {
 
     body.append(p, bar, tip)
     panel.append(header, body)
-    center.appendChild(panel)
+    wrap.appendChild(panel)
+    center.appendChild(wrap)
 
     // Deterministic-ish animation not used for gameplay; purely visual.
     let t = 0
@@ -439,19 +443,17 @@ export function createUIStateMachine(args: UIArgs) {
 
     const body = el('div', 'panel-body')
 
-    const desc = el('div', 'muted')
-    desc.textContent = 'No RNG: All outcomes are deterministic. Wave duration is fixed.'
-
-    const bal = el('div', 'muted')
-    bal.style.marginTop = '8px'
-    bal.innerHTML = `Paladyum: <span class="mono">${formatPaladyumInt(Math.max(0, Number((lastState as any)?.points ?? 0)))}</span>`
-
-    const warn = el('div', 'muted')
-    warn.style.marginTop = '6px'
-    warn.textContent = 'Your progress is saved in your browser. If you clear your browser data, your progress will be lost.'
+    // Compact info row
+    const infoRow = el('div', 'muted')
+    infoRow.style.fontSize = '11px'
+    infoRow.style.display = 'flex'
+    infoRow.style.gap = '12px'
+    infoRow.style.flexWrap = 'wrap'
+    infoRow.style.marginBottom = '14px'
+    infoRow.innerHTML = `<span>Paladyum: <span class="mono" style="color:var(--neon-lime)">${formatPaladyumInt(Math.max(0, Number((lastState as any)?.points ?? 0)))}</span></span><span>Deterministic \u2022 No RNG</span>`
 
     const row = el('div', 'ng-menu-actions')
-    row.style.marginTop = '12px'
+    row.style.marginTop = '0'
 
     const menuBtn = (label: string, iconSVG: string, iconTone: 'cyan' | 'magenta' | 'lime', extraClass?: string) => {
       const b = btn('', 'btn' + (extraClass ? ` ${extraClass}` : ''))
@@ -567,23 +569,7 @@ export function createUIStateMachine(args: UIArgs) {
 
     row.append(newRun, metaUpg, modules, tower, stats, settings, how)
 
-    const about = el('div', 'panel')
-    about.style.marginTop = '12px'
-    const ch = el('div', 'panel-header')
-    ch.textContent = 'No RNG Mode'
-    const cb = el('div', 'panel-body')
-    cb.innerHTML = `
-      <div class="muted">• Deterministic formulas: no drops, no luck.</div>
-      <div class="muted">• Miss KR target: reward multiplier drops, escapes can damage Base.</div>
-      <div class="muted">• Each wave lasts exactly ${config.sim.waveDurationSec.toFixed(1)}s.</div>
-    `
-    about.append(ch, cb)
-
-    const topInfo = el('div')
-    desc.style.marginTop = '6px'
-    topInfo.append(desc, bal, warn)
-
-    body.append(topInfo, row, about)
+    body.append(infoRow, row)
 
     panel.append(header, body)
     layout.appendChild(panel)
@@ -764,7 +750,7 @@ export function createUIStateMachine(args: UIArgs) {
     if (!state) return
     const sim = getSimOrFallback(state)
 
-    const topPanel = el('div', 'panel')
+    const topPanel = el('div')
     const bar = el('div', 'hud-topbar')
 
     const timeLeft = Math.max(0, config.sim.waveDurationSec - sim.waveTimeSec)
@@ -773,12 +759,13 @@ export function createUIStateMachine(args: UIArgs) {
       kv('Wave', String(state.wave), true),
       kv('Time', formatTimeMMSS(timeLeft), true),
       kv('Gold', formatNumber(state.gold, state.settings.numberFormat), true),
-      kv('Paladyum (Run)', formatPaladyumInt(state.stats.paladyumDroppedThisRun ?? 0), true),
-      kv('DPS (snap)', formatNumber(sim.wave.dpsSnap, state.settings.numberFormat), true),
+      kv('Paladyum', formatPaladyumInt(state.stats.paladyumDroppedThisRun ?? 0), true),
+      kv('DPS', formatNumber(sim.wave.dpsSnap, state.settings.numberFormat), true),
       kv('HP', `${formatNumber(state.baseHP, 'suffix')}`, true),
     )
 
-    const body = el('div', 'panel-body')
+    const body = el('div')
+    body.style.padding = '2px 10px 6px'
 
     // Kill ratio bar
     const kr = sim.spawnedSoFar <= 0 ? 0 : clamp(sim.killed / Math.max(1, sim.spawnedSoFar), 0, 1)
@@ -788,10 +775,10 @@ export function createUIStateMachine(args: UIArgs) {
     const line = el('div', 'hud-kpi')
 
     const left = el('div', 'hud-kpi-block')
-    left.innerHTML = `<div class="muted hud-kpi-label">Kill Ratio</div><div class="mono hud-kpi-value">${kr.toFixed(2)} <span class="muted">/ Target ${th.toFixed(2)}</span></div>`
+    left.innerHTML = `<div class="muted hud-kpi-label">Kill Ratio</div><div class="mono hud-kpi-value">${kr.toFixed(2)} <span class="muted" style="font-size:11px">/ ${th.toFixed(2)}</span></div>`
 
     const right = el('div', 'hud-kpi-block hud-kpi-right')
-    right.innerHTML = `<div class="muted hud-kpi-label">Penalty Multiplier</div><div class="mono hud-kpi-value" style="color:${penaltyFactor < 1 ? 'var(--danger)' : 'var(--neon-lime)'}">x${penaltyFactor.toFixed(2)}</div>`
+    right.innerHTML = `<div class="muted hud-kpi-label">Penalty</div><div class="mono hud-kpi-value" style="color:${penaltyFactor < 1 ? 'var(--danger)' : 'var(--neon-lime)'}">\u00d7${penaltyFactor.toFixed(2)}</div>`
 
     line.append(left, right)
 
@@ -806,14 +793,15 @@ export function createUIStateMachine(args: UIArgs) {
     top.appendChild(topPanel)
 
     // Bottom bar
-    const bottomPanel = el('div', 'panel')
+    const bottomPanel = el('div')
+    bottomPanel.style.marginTop = 'auto'
     const bb = el('div', 'bottom-bar')
 
     const leftStack = el('div', 'stack')
-    const speed1 = btn('1x', 'btn')
-    const speed2 = btn('2x', 'btn')
-    const speed3 = btn('3x', 'btn')
-    ;[speed1, speed2, speed3].forEach((b) => (b.style.minWidth = '42px'))
+    const speed1 = btn('1\u00d7', 'btn')
+    const speed2 = btn('2\u00d7', 'btn')
+    const speed3 = btn('3\u00d7', 'btn')
+    ;[speed1, speed2, speed3].forEach((b) => { b.style.minWidth = '36px'; b.style.textAlign = 'center' })
 
     const markSpeed = (button: HTMLButtonElement, active: boolean) => {
       button.classList.toggle('is-selected', active)
@@ -887,13 +875,15 @@ export function createUIStateMachine(args: UIArgs) {
         ub.appendChild(renderUpgradeRow('Gold Finder', 'gold', state.towerUpgrades.goldLevel))
       }
 
-      const liveTitle = el('div')
-      liveTitle.textContent = 'Live'
-      liveTitle.style.fontWeight = '800'
-      liveTitle.style.marginTop = '4px'
+      const liveTitle = el('div', 'muted')
+      liveTitle.textContent = 'LIVE'
+      liveTitle.style.fontWeight = '700'
+      liveTitle.style.fontSize = '10px'
+      liveTitle.style.letterSpacing = '0.06em'
+      liveTitle.style.marginTop = '6px'
 
       const live = el('div', 'muted')
-      live.style.fontSize = '12px'
+      live.style.fontSize = '11px'
       live.innerHTML = `
         <div>Spawn: <span class="mono">${sim.spawnedSoFar}/${sim.wave.spawnCount}</span></div>
         <div>Killed: <span class="mono">${sim.killed}</span> · Escaped: <span class="mono">${sim.escaped}</span></div>
