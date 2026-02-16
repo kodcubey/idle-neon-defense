@@ -8,7 +8,7 @@ import {
   calcWaveReport,
   calcWaveSnapshot,
   clamp,
-  effectiveCritParams,
+  effectiveCritParamsCached,
   effectiveEnemySpeedMult,
   fireRate,
   towerMultiShotCount,
@@ -130,6 +130,11 @@ export class SimEngine {
   private timeScale: 1 | 2 | 3 = 2
   private awaitingNextWave = false
 
+  private modsCache: ReturnType<typeof aggregateModules> | null = null
+  private skillsCache: ReturnType<typeof aggregateSkillPassives> | null = null
+  private modsDirty = true
+  private skillsDirty = true
+
   private towerPos: Vec2 = { x: 0, y: 0 }
   private towerCooldown = 0
   private towerShotCounter = 0
@@ -167,6 +172,9 @@ export class SimEngine {
     this.towerPos = { ...this.arena.center }
 
     this.waveMods = aggregateModules(this._state, this.cfg)
+    this.modsCache = this.waveMods
+    this.modsDirty = false
+    this.skillsDirty = true
     this.snapshot = calcWaveSnapshot(this._state, this.cfg)
     this.buildSpawnPlan()
 
@@ -211,9 +219,23 @@ export class SimEngine {
     }
   }
 
+  private getModsCached() {
+    if (!this.modsDirty && this.modsCache) return this.modsCache
+    this.modsCache = aggregateModules(this._state, this.cfg)
+    this.modsDirty = false
+    return this.modsCache
+  }
+
+  private getSkillsCached() {
+    if (!this.skillsDirty && this.skillsCache) return this.skillsCache
+    this.skillsCache = aggregateSkillPassives(this._state)
+    this.skillsDirty = false
+    return this.skillsCache
+  }
+
   getPublic(): SimPublic {
-    const mods = aggregateModules(this._state, this.cfg)
-    const skills = aggregateSkillPassives(this._state)
+    const mods = this.getModsCached()
+    const skills = this.getSkillsCached()
 
     const dmgLabMult = labEffectMult((this._state as any).lab?.levels?.damage ?? 0)
     const frLabMult = labEffectMult((this._state as any).lab?.levels?.fireRate ?? 0)
@@ -288,6 +310,8 @@ export class SimEngine {
     }
 
     this._state = { ...state }
+    this.modsDirty = true
+    this.skillsDirty = true
     // Do NOT recompute snapshot, wave time, spawn plan, or runtime counters.
     this.cb.onStateChanged(this._state)
   }
@@ -295,6 +319,9 @@ export class SimEngine {
   setSnapshot(state: GameState) {
     this._state = { ...state }
     this.waveMods = aggregateModules(this._state, this.cfg)
+    this.modsCache = this.waveMods
+    this.modsDirty = false
+    this.skillsDirty = true
     this.snapshot = calcWaveSnapshot(this._state, this.cfg)
     this.resetWaveRuntime()
     this.buildSpawnPlan()
@@ -370,6 +397,9 @@ export class SimEngine {
     this._state.stats.bestWave = Math.max(this._state.stats.bestWave, this._state.wave)
 
     this.waveMods = aggregateModules(this._state, this.cfg)
+    this.modsCache = this.waveMods
+    this.modsDirty = false
+    this.skillsDirty = true
     this.snapshot = calcWaveSnapshot(this._state, this.cfg)
     this.resetWaveRuntime()
     this.buildSpawnPlan()
@@ -461,7 +491,7 @@ export class SimEngine {
     const stabilityRank = getSkillRank(this._state, 'DF_STABILITY')
     const deficitBoostMult = clamp(1 - 0.15 * stabilityRank, 0, 1)
     const perEscape = this.cfg.progression.escapeDamage * (1 + this.cfg.progression.deficitBoost * deficit * deficitBoostMult)
-    const afterFortify = perEscape * towerEscapeDamageMult(this._state, this.cfg)
+    const afterFortify = perEscape * towerEscapeDamageMult(this._state, this.cfg, this.getSkillsCached())
     let dmg = Math.max(0, afterFortify * count)
 
     // Aegis Protocol: blocks escape hits (first full, second partial if Aegis Reserve).
@@ -480,7 +510,7 @@ export class SimEngine {
     // Guard Step: periodic single-hit shield.
     if (getSkillRank(this._state, 'DF_GUARD_STEP') > 0 && this.guardRechargeRemainingSec <= 0) {
       dmg *= 0.8
-      const cdMult = aggregateSkillPassives(this._state).cooldownMult
+      const cdMult = this.getSkillsCached().cooldownMult
       this.guardRechargeRemainingSec = 10 * cdMult
       this.lastProc = 'GUARD_BLOCK'
       this.lastProcUntilSec = this.waveTimeSec + 1.25
@@ -507,7 +537,7 @@ export class SimEngine {
         const maxHP = calcBaseHPMax(this._state, this.cfg)
         if (maxHP > 0 && this._state.baseHP / maxHP <= 0.15) {
           this._state.baseHP = clamp(this._state.baseHP + 0.1 * maxHP, 0, maxHP)
-          const cdMult = aggregateSkillPassives(this._state).cooldownMult
+          const cdMult = this.getSkillsCached().cooldownMult
           this._state.skills.cooldowns.secondBreathWaves = Math.max(1, Math.ceil(3 * cdMult))
           this.lastProc = 'SECOND_BREATH'
           this.lastProcUntilSec = this.waveTimeSec + 1.5
@@ -590,7 +620,7 @@ export class SimEngine {
   }
 
   private stepEnemies(dtSec: number) {
-    const speedMult = effectiveEnemySpeedMult(this._state, this.cfg)
+    const speedMult = effectiveEnemySpeedMult(this._state, this.cfg, this.getModsCached())
     for (const e of this.enemies) {
       if (!e.alive) continue
 
@@ -623,14 +653,14 @@ export class SimEngine {
     const fireRateNow = Math.max(0.1, pub.tower.fireRate)
     const cd = 1 / fireRateNow
 
-    const mods = aggregateModules(this._state, this.cfg)
-    const skills = aggregateSkillPassives(this._state)
+    const mods = this.getModsCached()
+    const skills = this.getSkillsCached()
     const baseShots = towerMultiShotCount(this._state, this.cfg)
     const totalShots = Math.max(1, Math.floor(Math.max(baseShots, mods.shotCount) + Math.max(0, skills.shotCountBonus)))
     const targets = this.pickTargets(pub, totalShots)
     if (targets.length === 0) return
 
-    const crit = effectiveCritParams(this._state, this.cfg, mods)
+    const crit = effectiveCritParamsCached(this._state, this.cfg, mods, skills)
 
     // Spawn visible projectiles; damage is applied on impact.
     for (const t of targets) {
@@ -668,10 +698,16 @@ export class SimEngine {
     if (this.projectiles.length === 0) return
     const hitR = 8
 
+    // Avoid O(projectiles * enemies) scans.
+    const enemyMap = new Map<number, EnemyEntity>()
+    for (const e of this.enemies) if (e.alive) enemyMap.set(e.id, e)
+
+    const pub = this.getPublic()
+
     for (const p of this.projectiles) {
       if (!p.alive) continue
 
-      const target = this.enemies.find((e) => e.id === p.targetEnemyId)
+      const target = enemyMap.get(p.targetEnemyId)
       if (!target || !target.alive) {
         p.alive = false
         if (getSkillRank(this._state, 'AT_COMBO_MOMENTUM') > 0) this.comboStacks = 0
@@ -683,7 +719,6 @@ export class SimEngine {
       const dist = Math.hypot(dx, dy)
 
       if (dist <= hitR) {
-        const pub = this.getPublic()
         const dmg = this.computeDamage(pub, target, p)
         target.hp -= dmg
         if (target.hp <= 0 && target.alive) {
@@ -762,7 +797,7 @@ export class SimEngine {
   }
 
   private applyTowerRepair(dtSec: number) {
-    const pct = towerRepairPctPerSec(this._state, this.cfg)
+    const pct = towerRepairPctPerSec(this._state, this.cfg, this.getSkillsCached())
     if (pct <= 0) return
 
     const maxHP = calcBaseHPMax(this._state, this.cfg)
@@ -788,7 +823,7 @@ export class SimEngine {
     if (this._state.baseHP >= maxHP) return
 
     this._state.baseHP = clamp(this._state.baseHP + 0.06 * maxHP, 0, maxHP)
-    const cdMult = aggregateSkillPassives(this._state).cooldownMult
+    const cdMult = this.getSkillsCached().cooldownMult
     this._state.skills.cooldowns.emergencyKitWaves = Math.max(1, Math.ceil(2 * cdMult))
     this.emergencyKitUsedThisWave = true
     this.lastProc = 'EMERGENCY_KIT'
@@ -796,7 +831,7 @@ export class SimEngine {
   }
 
   private maybeTriggerInvulnerability() {
-    const mods = aggregateModules(this._state, this.cfg)
+    const mods = this.getModsCached()
     const duration = mods.invulnDurationSec
     const cooldown = mods.invulnCooldownSec
 

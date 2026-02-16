@@ -72,9 +72,13 @@ export class GameScene extends Phaser.Scene {
     // the sim accumulator when focus returns.
     this.installFocusRecovery()
 
-    this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
+    const onResize = (gameSize: Phaser.Structs.Size) => {
       this.engine.setViewport({ width: gameSize.width, height: gameSize.height })
-    })
+    }
+    this.scale.on('resize', onResize)
+    const removeResize = () => this.scale.off('resize', onResize)
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => removeResize())
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => removeResize())
   }
 
   private installFocusRecovery() {
