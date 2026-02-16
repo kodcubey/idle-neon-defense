@@ -287,6 +287,18 @@ export type SkillsState = {
   }
 }
 
+export type LabResearch = {
+  key: TowerUpgradeKey
+  startedAtUTC: number
+  endsAtUTC: number
+  boostsUsed: number
+}
+
+export type LabState = {
+  levels: Record<TowerUpgradeKey, number>
+  research: LabResearch | null
+}
+
 export type GameState = {
   version: number
   lastSaveTimestampUTC: number
@@ -344,6 +356,9 @@ export type GameState = {
 
   // Skills progression (persistent).
   skills: SkillsState
+
+  // Lab progression (persistent): increases per-level effects for tower upgrades.
+  lab: LabState
 }
 
 export type WaveSnapshot = {

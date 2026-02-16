@@ -65,6 +65,22 @@ export function formatTimeMMSS(sec: number): string {
   return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`
 }
 
+export function formatTimeHhMm(sec: number): string {
+  const s = Math.max(0, sec)
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (h <= 0) return `${m}m`
+  return `${h}h ${String(m).padStart(2, '0')}m`
+}
+
+export function formatTimeHhMmSs(sec: number): string {
+  const s = Math.max(0, Math.floor(sec))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const r = Math.floor(s % 60)
+  return `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`
+}
+
 export function formatPct(v01: number): string {
   const v = Math.max(0, Math.min(1, v01))
   return `${(v * 100).toFixed(0)}%`

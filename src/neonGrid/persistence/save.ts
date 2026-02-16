@@ -1,6 +1,7 @@
 import type { GameConfig, GameState, Settings, Stats } from '../types'
 import { exportEncryptedSaveString, importEncryptedSaveFile } from './encryptedSaveFile'
 import { defaultSkillState } from '../skills/skills'
+import { defaultLabState, finalizeResearchIfComplete, sanitizeLabState } from '../labs/labs'
 
 const LOCAL_SAVE_KEY = 'neon-grid:local-save:v1'
 
@@ -88,6 +89,8 @@ export function createNewState(config: GameConfig, nowUTC: number): GameState {
     stats: defaultStats(),
 
     skills: defaultSkillState(),
+
+    lab: defaultLabState(),
   }
 }
 
@@ -215,6 +218,17 @@ export function rehydrateImportedState(config: GameConfig, input: GameState, now
     const n = typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0
     ;(s.nodes as any)[k] = n
   }
+
+  // Remove deprecated skills and refund spent skill points.
+  const removedSkillIds = ['UT_WAVE_PLANNER', 'UT_ADVANCED_PLANNER', 'AT_T1_DMG_CELL_01']
+  for (const id of removedSkillIds) {
+    const r = (s.nodes as any)[id]
+    const n = typeof r === 'number' && Number.isFinite(r) ? Math.max(0, Math.floor(r)) : 0
+    if (n > 0) {
+      s.skillPoints = Math.max(0, Math.floor(s.skillPoints + n))
+    }
+    delete (s.nodes as any)[id]
+  }
   if (!s.cooldowns || typeof s.cooldowns !== 'object') s.cooldowns = { ...baseSkills.cooldowns }
   s.cooldowns.secondBreathWaves =
     typeof s.cooldowns.secondBreathWaves === 'number' && Number.isFinite(s.cooldowns.secondBreathWaves)
@@ -224,6 +238,10 @@ export function rehydrateImportedState(config: GameConfig, input: GameState, now
     typeof s.cooldowns.emergencyKitWaves === 'number' && Number.isFinite(s.cooldowns.emergencyKitWaves)
       ? Math.max(0, Math.floor(s.cooldowns.emergencyKitWaves))
       : 0
+
+  // Lab: ensure object + sanitize, and finalize any completed research on load.
+  ;(merged as any).lab = sanitizeLabState((merged as any).lab)
+  merged.lab = finalizeResearchIfComplete(merged.lab, nowUTC)
 
   return merged
 }
@@ -258,6 +276,11 @@ export function buildSaveSnapshot(config: GameConfig, state: GameState, nowUTC: 
       ...(state.skills as any),
       nodes: { ...(state.skills?.nodes as any) },
       cooldowns: { ...(state.skills?.cooldowns as any) },
+    },
+
+    lab: {
+      ...(state.lab as any),
+      research: state.lab?.research ? { ...(state.lab.research as any) } : null,
     },
 
   }

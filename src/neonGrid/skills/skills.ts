@@ -183,7 +183,7 @@ export const SKILLS: SkillDef[] = [
     effects: [{ dmgPct: 0.07 }, { dmgPct: 0.06, fireRatePct: 0.03 }, { dmgPct: 0.05, armorPierce: 0.03 }, { dmgPct: 0.05, critChance: 0.03 }],
     maxRank: 3,
     icon: iconAttack(),
-  }),
+  }).filter((s) => s.id !== ('AT_T1_DMG_CELL_01' as SkillId)),
   ...genUniqueSeries({
     branch: 'attack',
     tier: 1,
@@ -693,17 +693,6 @@ export const SKILLS: SkillDef[] = [
     maxRank: 3,
   },
   {
-    id: 'UT_WAVE_PLANNER',
-    branch: 'utility',
-    tier: 2,
-    name: 'Wave Planner',
-    description: 'Wave start: show spawn-direction hint for 2s (UI arrows).',
-    icon: icon(`<path d="M4 7h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      <path d="M7 11h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      <path d="M10 15h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`),
-    maxRank: 1,
-  },
-  {
     id: 'UT_EFFICIENCY',
     branch: 'utility',
     tier: 2,
@@ -786,19 +775,6 @@ export const SKILLS: SkillDef[] = [
     icon: icon(`<path d="M6 7h12v6H6V7Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
       <path d="M8 13v7h8v-7" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
       <path d="M10 10h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.55"/>`),
-    maxRank: 1,
-  },
-  {
-    id: 'UT_ADVANCED_PLANNER',
-    branch: 'utility',
-    tier: 4,
-    name: 'Advanced Planner',
-    description: 'Wave Planner hint lasts +2s (total 4s).',
-    requires: [{ id: 'UT_WAVE_PLANNER', rank: 1 }],
-    icon: icon(`<path d="M4 7h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      <path d="M7 11h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      <path d="M6 19h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.55"/>
-      <path d="M10 15h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`),
     maxRank: 1,
   },
 

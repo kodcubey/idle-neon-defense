@@ -2,6 +2,15 @@ import type { GameConfig, GameState, TowerUpgradeKey } from '../types'
 import { clamp, aggregateModules } from './deterministic'
 import { metaUpgradeCostPoints, moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, skillsRespecCostPoints, upgradeCost, upgradeMaxLevel } from './costs'
 import { aggregateSkillPassives, canBuySkill, defaultSkillState, getSkillRank, type SkillId } from '../skills/skills'
+import {
+  defaultLabState,
+  finalizeResearchIfComplete,
+  labEffectMult,
+  researchCostPointsForNext,
+  researchDurationSecForNext,
+  sanitizeLabState,
+  type LabKey,
+} from '../labs/labs'
 
 export function applyTowerUpgrade(args: {
   state: GameState
@@ -227,11 +236,55 @@ function setUpgradeLevel(
 
 export function calcBaseHPMax(state: GameState, cfg: GameConfig): number {
   const L = Math.max(1, Math.floor(state.towerUpgrades.baseHPLevel))
-  const base = cfg.tower.baseHP0 * Math.pow(1 + cfg.tower.baseHPGrowth, L - 1)
+  const defMult = labEffectMult((state as any).lab?.levels?.baseHP ?? 0)
+  const g = Math.max(0, cfg.tower.baseHPGrowth * Math.max(0, defMult))
+  const base = cfg.tower.baseHP0 * Math.pow(1 + g, L - 1)
   const mods = aggregateModules(state, cfg)
   const skills = aggregateSkillPassives(state)
   const raw = base + mods.baseHPBonus
   return Math.max(1, raw * mods.baseHPMult * skills.baseHPMult)
+}
+
+export function finalizeLab(args: { state: GameState; nowUTC: number }): { state: GameState; changed: boolean } {
+  const state: GameState = structuredClone(args.state)
+  ;(state as any).lab = sanitizeLabState((state as any).lab)
+  const before = (state as any).lab
+  const after = finalizeResearchIfComplete(before, args.nowUTC)
+  if (after === before) return { state: args.state, changed: false }
+  ;(state as any).lab = after
+  return { state, changed: true }
+}
+
+export function startLabResearch(args: { state: GameState; cfg: GameConfig; key: TowerUpgradeKey; nowUTC: number }): { ok: boolean; state: GameState; reason?: string } {
+  void args.cfg
+  const state: GameState = structuredClone(args.state)
+  ;(state as any).lab = sanitizeLabState((state as any).lab)
+  state.lab = finalizeResearchIfComplete(state.lab, args.nowUTC)
+
+  if (!state.lab) state.lab = defaultLabState() as any
+  if (state.lab.research) return { ok: false, state: args.state, reason: 'Research already in progress.' }
+
+  const key = args.key as LabKey
+  const costPoints = researchCostPointsForNext(state.lab, key)
+  const durSec = researchDurationSecForNext(state.lab, key)
+
+  if (state.points < costPoints) return { ok: false, state: args.state, reason: 'Not enough Paladyum.' }
+
+  state.points = Math.max(0, Math.floor(state.points - costPoints))
+  state.lab.research = {
+    key,
+    startedAtUTC: Math.max(0, Math.floor(args.nowUTC)),
+    endsAtUTC: Math.max(0, Math.floor(args.nowUTC + durSec * 1000)),
+    boostsUsed: 0,
+  }
+
+  return { ok: true, state }
+}
+
+export function boostLabResearch(args: { state: GameState; cfg: GameConfig; nowUTC: number }): { ok: boolean; state: GameState; costPoints?: number; reason?: string } {
+  void args.cfg
+  void args.nowUTC
+  return { ok: false, state: args.state, reason: 'Boost is disabled.' }
 }
 
 export function tryBuySkill(args: { state: GameState; cfg: GameConfig; id: SkillId }): { ok: boolean; state: GameState; reason?: string } {

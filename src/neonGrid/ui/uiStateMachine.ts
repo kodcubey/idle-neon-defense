@@ -3,7 +3,7 @@ import type { NeonGridGame } from '../phaser/createGame'
 import type { SimPublic } from '../sim/SimEngine'
 import { createNewState } from '../persistence/save'
 import { btn, clear, el, hr, kv } from './dom'
-import { formatNumber, formatPaladyumInt, formatPct, formatTimeMMSS } from './format'
+import { formatNumber, formatPaladyumInt, formatPct, formatTimeHhMmSs, formatTimeMMSS } from './format'
 import {
   aggregateModules,
   baseDmg,
@@ -23,6 +23,14 @@ import {
   towerRepairPctPerSec,
   towerEnemySpeedMult,
 } from '../sim/deterministic'
+import {
+  finalizeResearchIfComplete,
+  labEffectMultForKey,
+  labLevel,
+  researchCostPointsForNext,
+  researchDurationSecForNext,
+  sanitizeLabState,
+} from '../labs/labs'
 import { calcBaseHPMax } from '../sim/actions'
 import { metaUpgradeCostPoints, moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, skillsRespecCostPoints, upgradeCost, upgradeMaxLevel } from '../sim/costs'
 import {
@@ -302,15 +310,20 @@ export function createUIStateMachine(args: UIArgs) {
     const mods = aggregateModules(state, config)
     const skills = aggregateSkillPassives(state)
 
-    const baseDamage = baseDmg(state.towerUpgrades.damageLevel, config)
+    const lab = sanitizeLabState((state as any).lab)
+    const dmgLabMult = labEffectMultForKey(lab, 'damage')
+    const frLabMult = labEffectMultForKey(lab, 'fireRate')
+    const rangeLabMult = labEffectMultForKey(lab, 'range')
+
+    const baseDamage = baseDmg(state.towerUpgrades.damageLevel, config, dmgLabMult)
     const damagePerShot = Math.max(0, baseDamage * mods.dmgMult * skills.dmgMult + mods.dmgFlat)
     const crit = effectiveCritParams(state, config, mods)
     const critAvg = critAverageDamageMult(state, config, mods)
 
-    const fireRateBase = fireRate(state.towerUpgrades.fireRateLevel, config)
+    const fireRateBase = fireRate(state.towerUpgrades.fireRateLevel, config, frLabMult)
     const fireRateFinal = Math.max(0.1, fireRateBase * (1 + mods.fireRateBonus + skills.fireRateBonus))
 
-    const rangeBase = towerRange(state.towerUpgrades.rangeLevel, config)
+    const rangeBase = towerRange(state.towerUpgrades.rangeLevel, config, rangeLabMult)
     const rangeFinal = Math.max(0, rangeBase + mods.rangeBonus)
 
     const armorPierceBonus = towerArmorPierceBonus(state, config)
@@ -566,6 +579,13 @@ export function createUIStateMachine(args: UIArgs) {
       </svg>
     `
 
+    const iconLab = `
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M10 3v6l-4.5 8.2A3 3 0 0 0 8.1 21h7.8a3 3 0 0 0 2.6-3.8L14 9V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M9 13h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.55"/>
+      </svg>
+    `
+
     const iconInfo = `
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z" stroke="currentColor" stroke-width="2"/>
@@ -606,6 +626,14 @@ export function createUIStateMachine(args: UIArgs) {
       })()
     }
 
+    const labBtn = menuBtn('Lab', iconLab, 'lime')
+    labBtn.onclick = () => {
+      void (async () => {
+        if (game) game.setPaused(true)
+        await showLabsModal()
+      })()
+    }
+
     const stats = menuBtn('Stats', iconChart, 'cyan')
     stats.onclick = () => {
       if (game) game.setPaused(true)
@@ -636,7 +664,7 @@ export function createUIStateMachine(args: UIArgs) {
       void showMetaUpgradesModal()
     }
 
-    row.append(newRun, metaUpg, modules, skills, tower, stats, settings, how)
+    row.append(newRun, metaUpg, modules, skills, labBtn, tower, stats, settings, how)
 
     body.append(infoRow, row)
 
@@ -829,10 +857,256 @@ export function createUIStateMachine(args: UIArgs) {
     return row
   }
 
+  async function showLabsModal() {
+    if (!lastState || !game) return
+    const g = game
+
+    // Finalize completed research on open.
+    g.finalizeLabs()
+    const state = g.getSnapshot()
+    lastState = state
+
+    const modal = el('div', 'panel')
+    modal.style.width = 'min(760px, calc(100vw - 20px))'
+    modal.style.pointerEvents = 'auto'
+
+    const overlay = mountModal(modal)
+    let closed = false
+    let tickId: number | null = null
+    const cleanup = () => {
+      if (closed) return
+      closed = true
+      if (tickId !== null) {
+        window.clearInterval(tickId)
+        tickId = null
+      }
+    }
+
+    const h = el('div', 'panel-header')
+    const title = el('div')
+    title.textContent = 'Lab'
+    const close = btn('Close', 'btn')
+    close.onclick = () => {
+      cleanup()
+      overlay.remove()
+      render()
+    }
+    h.append(title, close)
+
+    const b = el('div', 'panel-body')
+
+    const nowUTC = Date.now()
+    const lab = finalizeResearchIfComplete(sanitizeLabState((state as any).lab), nowUTC)
+    const active = lab?.research ?? null
+
+    const bal = el('div', 'muted')
+    bal.style.marginBottom = '10px'
+    bal.innerHTML = `Paladyum: <span class="mono">${formatPaladyumInt(state.points)}</span>`
+    b.appendChild(bal)
+
+    const labPanel = el('div', 'ng-lab-panel')
+    const labHead = el('div', 'ng-lab-head')
+    labHead.innerHTML = `<div style="font-weight:900; letter-spacing:0.03em">Research</div><div class="muted" style="font-size:11px">Real-time research • Costs Paladyum</div>`
+
+    const labelForKey: Record<TowerUpgradeKey, string> = {
+      damage: 'Damage',
+      fireRate: 'Fire Rate',
+      crit: 'Crit',
+      multiShot: 'Multi Shot',
+      armorPierce: 'Armor Pierce',
+      baseHP: 'Base HP',
+      slow: 'Slow',
+      fortify: 'Fortify',
+      repair: 'Repair',
+      range: 'Range',
+      gold: 'Gold',
+    }
+
+    const fmtCoef = (v: number): string => {
+      const a = Math.abs(v)
+      if (!Number.isFinite(v)) return '0'
+      if (a === 0) return '0'
+      if (a < 0.001) return v.toExponential(2)
+      if (a < 0.1) return v.toFixed(4)
+      return v.toFixed(3)
+    }
+
+    const coefHtml = (key: TowerUpgradeKey, mult: number): string => {
+      const m = Math.max(0, mult)
+      switch (key) {
+        case 'damage': {
+          const base = config.progression.dmgGrowthD
+          return `Growth: <span class="mono">${fmtCoef(base)}</span> → <span class="mono">${fmtCoef(base * m)}</span>`
+        }
+        case 'fireRate': {
+          const base = config.progression.fireRateLogK
+          return `k: <span class="mono">${fmtCoef(base)}</span> → <span class="mono">${fmtCoef(base * m)}</span>`
+        }
+        case 'range': {
+          const base = config.tower.rangeGrowth
+          return `Per Lv: <span class="mono">${fmtCoef(base)}</span> → <span class="mono">${fmtCoef(base * m)}</span>`
+        }
+        case 'baseHP': {
+          const base = config.tower.baseHPGrowth
+          return `Growth: <span class="mono">${fmtCoef(base)}</span> → <span class="mono">${fmtCoef(base * m)}</span>`
+        }
+        case 'armorPierce': {
+          const base = config.tower.upgrades.armorPiercePerLevel
+          return `Per Lv: <span class="mono">${fmtCoef(base)}</span> → <span class="mono">${fmtCoef(base * m)}</span>`
+        }
+        case 'slow': {
+          const base = config.tower.upgrades.slowPerLevel
+          return `Per Lv: <span class="mono">${fmtCoef(base)}</span> → <span class="mono">${fmtCoef(base * m)}</span>`
+        }
+        case 'fortify': {
+          const base = config.tower.upgrades.fortifyPerLevel
+          return `Per Lv: <span class="mono">${fmtCoef(base)}</span> → <span class="mono">${fmtCoef(base * m)}</span>`
+        }
+        case 'repair': {
+          const base = config.tower.upgrades.repairPctPerSecPerLevel
+          return `Per Lv: <span class="mono">${fmtCoef(base)}</span> → <span class="mono">${fmtCoef(base * m)}</span>`
+        }
+        case 'gold': {
+          const base = config.tower.upgrades.goldMultPerLevel
+          return `Per Lv: <span class="mono">${fmtCoef(base)}</span> → <span class="mono">${fmtCoef(base * m)}</span>`
+        }
+        case 'crit': {
+          const baseReduce = config.tower.upgrades.critEveryNReducePerLevel
+          const baseMult = config.tower.upgrades.critMultPerLevel
+          return `Reduce: <span class="mono">${fmtCoef(baseReduce)}</span> → <span class="mono">${fmtCoef(baseReduce * m)}</span> • Mult: <span class="mono">${fmtCoef(baseMult)}</span> → <span class="mono">${fmtCoef(baseMult * m)}</span>`
+        }
+        case 'multiShot': {
+          return `Level mult: <span class="mono">x${m.toFixed(2)}</span>`
+        }
+      }
+    }
+
+    const groups: Array<{ title: string; keys: TowerUpgradeKey[] }> = [
+      { title: 'Attack', keys: ['damage', 'fireRate', 'crit', 'multiShot', 'armorPierce'] },
+      { title: 'Defense', keys: ['baseHP', 'slow', 'fortify', 'repair'] },
+      { title: 'Utility', keys: ['range', 'gold'] },
+    ]
+
+    const makeCard = (key: TowerUpgradeKey) => {
+      const card = el('div', 'ng-lab-card')
+
+      const level = labLevel(lab, key)
+      const mult = labEffectMultForKey(lab, key)
+
+      const hh = el('div', 'ng-lab-card-head')
+      hh.textContent = `${labelForKey[key]} • Lv ${level}`
+
+      const coef = el('div', 'muted')
+      coef.style.fontSize = '11px'
+      coef.innerHTML = coefHtml(key, mult)
+
+      const actions = el('div', 'ng-lab-actions')
+
+      const isActive = active && active.key === key
+      const busyOther = !!active && active.key !== key
+
+      if (isActive) {
+        const line = el('div', 'muted')
+        line.style.fontSize = '11px'
+        const remainingSpan = el('span', 'mono')
+        const renderRemaining = () => {
+          const rSec = Math.max(0, Math.floor(((active?.endsAtUTC ?? 0) - Date.now()) / 1000))
+          remainingSpan.textContent = formatTimeHhMmSs(rSec)
+        }
+        line.append(
+          document.createTextNode('Research in progress • Remaining: '),
+          remainingSpan,
+        )
+
+        // Live countdown while modal is open.
+        renderRemaining()
+        if (tickId === null) {
+          tickId = window.setInterval(() => {
+            if (closed) return
+            if (!active) return
+            if (Date.now() >= active.endsAtUTC) {
+              // Finalize + refresh modal so levels update instantly.
+              g.finalizeLabs()
+              cleanup()
+              overlay.remove()
+              void showLabsModal()
+              return
+            }
+            renderRemaining()
+          }, 1000)
+        }
+
+        actions.append(line)
+      } else {
+        const costPoints = researchCostPointsForNext(lab, key)
+        const durSec = researchDurationSecForNext(lab, key)
+
+        const line = el('div', 'muted')
+        line.style.fontSize = '11px'
+        line.innerHTML = `Next: <span class="mono">${formatTimeHhMmSs(durSec)}</span> • Cost: <span class="mono">${formatPaladyumInt(costPoints)}</span> Paladyum`
+
+        const startBtn = btn('Start Research', 'btn btn-primary')
+        startBtn.disabled = busyOther
+        startBtn.onclick = () => {
+          const r = g.startLabResearch(key)
+          if (!r.ok) {
+            pushToast(r.reason ?? 'Cannot start research.', 'warn')
+            return
+          }
+          pushToast(`${labelForKey[key]} Lab: research started`, 'good')
+          overlay.remove()
+          void showLabsModal()
+        }
+
+        actions.append(line, startBtn)
+
+        if (busyOther) {
+          const busy = el('div', 'muted')
+          busy.style.fontSize = '11px'
+          busy.style.marginTop = '6px'
+          busy.textContent = `Busy: ${active.key} research in progress.`
+          actions.appendChild(busy)
+        }
+      }
+
+      card.append(hh, coef, actions)
+      return card
+    }
+
+    for (const gDef of groups) {
+      const head = el('div')
+      head.style.marginTop = '10px'
+      head.style.marginBottom = '6px'
+      head.style.fontWeight = '900'
+      head.style.letterSpacing = '0.02em'
+      head.textContent = gDef.title
+      b.appendChild(head)
+
+      const sectionGrid = el('div', 'ng-lab-grid')
+      for (const key of gDef.keys) sectionGrid.appendChild(makeCard(key))
+      b.appendChild(sectionGrid)
+    }
+
+    // (Cards are now rendered in grouped sections for readability.)
+    labPanel.append(labHead)
+    b.appendChild(labPanel)
+
+    modal.append(h, b)
+    overlay.addEventListener('pointerdown', (e) => {
+      if (e.target === overlay) {
+        cleanup()
+        overlay.remove()
+      }
+    })
+  }
+
   async function showSkillsModal() {
     if (!lastState || !game) return
-    const state = lastState
     const g = game
+    // Finalize completed Lab research (uses absolute UTC timestamps).
+    g.finalizeLabs()
+    const state = g.getSnapshot()
+    lastState = state
 
     const modal = el('div', 'panel ng-skills-modal')
     modal.style.width = 'min(920px, calc(100vw - 20px))'

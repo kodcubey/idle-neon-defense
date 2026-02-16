@@ -19,6 +19,7 @@ import {
 } from './deterministic'
 import { calcBaseHPMax } from './actions'
 import { aggregateSkillPassives, calcWaveXpGain, getSkillRank, xpToNext } from '../skills/skills'
+import { labEffectMult } from '../labs/labs'
 import type { Vec2 } from './path'
 
 export type EnemyEntity = {
@@ -65,7 +66,6 @@ export type SimPublic = {
     tacticalActive: boolean
     guardChargeReady: boolean
     aegisCharge: number
-    spawnHintEdge: 'N' | 'E' | 'S' | 'W' | null
     lastProc?: 'GUARD_BLOCK' | 'AEGIS_BLOCK' | 'SECOND_BREATH' | 'EMERGENCY_KIT' | 'RECOVERY_PULSE'
     lastProcUntilSec?: number
   }
@@ -141,8 +141,6 @@ export class SimEngine {
   private comboStacks = 0
   private adrenalRemainingSec = 0
   private tacticalRemainingSec = 0
-  private wavePlannerHintRemainingSec = 0
-  private spawnHintEdge: 'N' | 'E' | 'S' | 'W' | null = null
   private guardRechargeRemainingSec = 0
   private aegisCharge = 0
   private emergencyKitUsedThisWave = false
@@ -197,23 +195,6 @@ export class SimEngine {
     if (getSkillRank(this._state, 'UT_TACTICAL_RELAY') > 0) this.tacticalRemainingSec = 6
     else this.tacticalRemainingSec = 0
 
-    if (getSkillRank(this._state, 'UT_WAVE_PLANNER') > 0) {
-      const adv = getSkillRank(this._state, 'UT_ADVANCED_PLANNER')
-      this.wavePlannerHintRemainingSec = 2 + (adv > 0 ? 2 : 0)
-
-      const p = this.calcSpawnPoint(this.snapshot.wave, 1)
-      const eps = 1e-3
-      const { left, top, right, bottom } = this.arena.bounds
-      if (Math.abs(p.y - top) <= eps) this.spawnHintEdge = 'N'
-      else if (Math.abs(p.x - right) <= eps) this.spawnHintEdge = 'E'
-      else if (Math.abs(p.y - bottom) <= eps) this.spawnHintEdge = 'S'
-      else if (Math.abs(p.x - left) <= eps) this.spawnHintEdge = 'W'
-      else this.spawnHintEdge = null
-    } else {
-      this.wavePlannerHintRemainingSec = 0
-      this.spawnHintEdge = null
-    }
-
     const aegis = getSkillRank(this._state, 'DF_AEGIS_PROTOCOL')
     const reserve = getSkillRank(this._state, 'DF_AEGIS_RESERVE')
     this.aegisCharge = aegis > 0 ? 1 + (reserve > 0 ? 1 : 0) : 0
@@ -234,22 +215,26 @@ export class SimEngine {
     const mods = aggregateModules(this._state, this.cfg)
     const skills = aggregateSkillPassives(this._state)
 
+    const dmgLabMult = labEffectMult((this._state as any).lab?.levels?.damage ?? 0)
+    const frLabMult = labEffectMult((this._state as any).lab?.levels?.fireRate ?? 0)
+    const rangeLabMult = labEffectMult((this._state as any).lab?.levels?.range ?? 0)
+
     const damagePerShot =
-      ((baseDmg(this._state.towerUpgrades.damageLevel, this.cfg) * mods.dmgMult + mods.dmgFlat) * skills.dmgMult) *
+      ((baseDmg(this._state.towerUpgrades.damageLevel, this.cfg, dmgLabMult) * mods.dmgMult + mods.dmgFlat) * skills.dmgMult) *
       (1 + 0) *
       (1 + 0) *
       (1 + 0) *
       (1 + 0)
 
     const adrenalMult = this.adrenalRemainingSec > 0 ? 1.1 : 1
-    const fr = fireRate(this._state.towerUpgrades.fireRateLevel, this.cfg) * (1 + mods.fireRateBonus) * (1 + skills.fireRateBonus) * adrenalMult
+    const fr =
+      fireRate(this._state.towerUpgrades.fireRateLevel, this.cfg, frLabMult) * (1 + mods.fireRateBonus) * (1 + skills.fireRateBonus) * adrenalMult
 
     const tacticalMult = this.tacticalRemainingSec > 0 ? 1.1 : 1
-    const range = (towerRange(this._state.towerUpgrades.rangeLevel, this.cfg) + mods.rangeBonus) * tacticalMult * skills.rangeMult
+    const range = (towerRange(this._state.towerUpgrades.rangeLevel, this.cfg, rangeLabMult) + mods.rangeBonus) * tacticalMult * skills.rangeMult
     const armorPierce = clamp(mods.armorPierce + towerArmorPierceBonus(this._state, this.cfg) + skills.armorPierceBonus, 0, 0.9)
 
     const guardRank = getSkillRank(this._state, 'DF_GUARD_STEP')
-    const wavePlannerRank = getSkillRank(this._state, 'UT_WAVE_PLANNER')
     const procAlive = typeof this.lastProcUntilSec === 'number' ? this.waveTimeSec <= this.lastProcUntilSec : false
 
     return {
@@ -269,7 +254,6 @@ export class SimEngine {
         tacticalActive: this.tacticalRemainingSec > 0,
         guardChargeReady: guardRank > 0 && this.guardRechargeRemainingSec <= 0,
         aegisCharge: this.aegisCharge,
-        spawnHintEdge: wavePlannerRank > 0 && this.wavePlannerHintRemainingSec > 0 ? this.spawnHintEdge : null,
         lastProc: procAlive ? this.lastProc : undefined,
         lastProcUntilSec: procAlive ? this.lastProcUntilSec : undefined,
       },
@@ -412,7 +396,6 @@ export class SimEngine {
     // Skills runtime timers (deterministic; time-based).
     this.adrenalRemainingSec = Math.max(0, this.adrenalRemainingSec - scaled)
     this.tacticalRemainingSec = Math.max(0, this.tacticalRemainingSec - scaled)
-    this.wavePlannerHintRemainingSec = Math.max(0, this.wavePlannerHintRemainingSec - scaled)
     this.guardRechargeRemainingSec = Math.max(0, this.guardRechargeRemainingSec - scaled)
 
     this.waveTimeSec += scaled
@@ -459,8 +442,6 @@ export class SimEngine {
     this.comboStacks = 0
     this.adrenalRemainingSec = 0
     this.tacticalRemainingSec = 0
-    this.wavePlannerHintRemainingSec = 0
-    this.spawnHintEdge = null
     this.guardRechargeRemainingSec = 0
     this.aegisCharge = 0
     this.emergencyKitUsedThisWave = false

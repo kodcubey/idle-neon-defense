@@ -85,9 +85,9 @@ Toplam etkiler bazı alanlarda clamp edilir (örn. aşırı büyümeyi engelleme
 
 ## 8) İçerik Boyutu
 
-- Toplam: **120 skill**
-  - Attack: 40
+- Toplam: **117 skill**
+  - Attack: 39
   - Defense: 40
-  - Utility: 40
+  - Utility: 38
 
 Not: İçerik data‑driven’dır; UI otomatik listeler.

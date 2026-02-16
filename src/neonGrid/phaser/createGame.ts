@@ -2,7 +2,19 @@ import Phaser from 'phaser'
 import type { GameConfig, GameState, RunSummary, WaveReport } from '../types'
 import { SimEngine, type SimCallbacks, type SimPublic } from '../sim/SimEngine'
 import { createNewState } from '../persistence/save'
-import { applyTowerMetaUpgrade, applyTowerUpgrade, equipModule, respecSkills, tryBuySkill, tryModuleUnlock, tryModuleUpgrade, tryUnlockModuleSlot } from '../sim/actions'
+import {
+  applyTowerMetaUpgrade,
+  applyTowerUpgrade,
+  boostLabResearch,
+  equipModule,
+  finalizeLab,
+  respecSkills,
+  startLabResearch,
+  tryBuySkill,
+  tryModuleUnlock,
+  tryModuleUpgrade,
+  tryUnlockModuleSlot,
+} from '../sim/actions'
 import type { SkillId } from '../skills/skills'
 import { BootScene } from './scenes/BootScene'
 import { GameScene } from './scenes/GameScene'
@@ -36,6 +48,14 @@ export type NeonGridGame = {
 
   buySkill: (id: SkillId) => { ok: boolean; reason?: string }
   respecSkills: () => { ok: boolean; cost: number }
+
+  // Lab research (persistent progression)
+  finalizeLabs: () => boolean
+  startLabResearch: (key: 'damage' | 'fireRate' | 'crit' | 'multiShot' | 'armorPierce' | 'baseHP' | 'slow' | 'fortify' | 'repair' | 'range' | 'gold') => {
+    ok: boolean
+    reason?: string
+  }
+  boostLabResearch: () => { ok: boolean; costPoints?: number; reason?: string }
 
   onSim: (cb: (pub: SimPublic) => void) => void
 }
@@ -212,6 +232,9 @@ export function createGame(args: {
       // Skills persist across runs.
       s.skills = structuredClone(prev.skills)
 
+      // Lab persists across runs.
+      ;(s as any).lab = structuredClone((prev as any).lab)
+
        // Permanent upgrades define starting tower upgrade levels.
        s.towerMetaUpgrades = { ...prev.towerMetaUpgrades }
        s.towerUpgrades = { ...prev.towerMetaUpgrades } as any
@@ -235,6 +258,30 @@ export function createGame(args: {
       if (!next.ok) return { ok: false, cost: next.cost }
       applyState(next.state, 'soft')
       return { ok: true, cost: next.cost }
+    },
+
+    finalizeLabs: () => {
+      const s = currentState()
+      const r = finalizeLab({ state: s, nowUTC: Date.now() })
+      if (!r.changed) return false
+      applyState(r.state, 'soft')
+      return true
+    },
+
+    startLabResearch: (key) => {
+      const s = currentState()
+      const r = startLabResearch({ state: s, cfg, key, nowUTC: Date.now() })
+      if (!r.ok) return { ok: false, reason: r.reason }
+      applyState(r.state, 'soft')
+      return { ok: true }
+    },
+
+    boostLabResearch: () => {
+      const s = currentState()
+      const r = boostLabResearch({ state: s, cfg, nowUTC: Date.now() })
+      if (!r.ok) return { ok: false, reason: r.reason, costPoints: r.costPoints }
+      applyState(r.state, 'soft')
+      return { ok: true, costPoints: r.costPoints }
     },
 
     buyUpgrade: (key, amount) => {

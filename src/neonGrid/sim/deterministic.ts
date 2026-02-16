@@ -1,5 +1,10 @@
 import type { EnemyTypeDef, GameConfig, GameState, ModuleDef, WaveReport, WaveSnapshot } from '../types'
 import { aggregateSkillPassives } from '../skills/skills'
+import { labEffectMult } from '../labs/labs'
+
+function labMult(state: GameState, key: 'damage' | 'fireRate' | 'crit' | 'multiShot' | 'armorPierce' | 'baseHP' | 'slow' | 'fortify' | 'repair' | 'range' | 'gold'): number {
+  return labEffectMult((state as any).lab?.levels?.[key] ?? 0)
+}
 
 export function dayIndexUTC(nowUTC: number): number {
   return Math.floor(nowUTC / 86400_000)
@@ -16,20 +21,23 @@ export function calcPrestigeMult(prestigePoints: number, cfg: GameConfig): numbe
   return 1
 }
 
-export function baseDmg(damageLevel: number, cfg: GameConfig): number {
+export function baseDmg(damageLevel: number, cfg: GameConfig, perLevelMult: number = 1): number {
   const L = Math.max(1, Math.floor(damageLevel))
-  return cfg.progression.d0 * Math.pow(1 + cfg.progression.dmgGrowthD, L - 1)
+  const g = Math.max(0, cfg.progression.dmgGrowthD * Math.max(0, perLevelMult))
+  return cfg.progression.d0 * Math.pow(1 + g, L - 1)
 }
 
-export function fireRate(fireRateLevel: number, cfg: GameConfig): number {
+export function fireRate(fireRateLevel: number, cfg: GameConfig, perLevelMult: number = 1): number {
   const L = Math.max(1, Math.floor(fireRateLevel))
-  const rate = cfg.progression.r0 + cfg.progression.fireRateLogK * Math.log(1 + L)
+  const k = Math.max(0, cfg.progression.fireRateLogK * Math.max(0, perLevelMult))
+  const rate = cfg.progression.r0 + k * Math.log(1 + L)
   return Math.min(cfg.progression.rMax, rate)
 }
 
-export function towerRange(rangeLevel: number, cfg: GameConfig): number {
+export function towerRange(rangeLevel: number, cfg: GameConfig, perLevelMult: number = 1): number {
   const L = Math.max(1, Math.floor(rangeLevel))
-  return cfg.tower.baseRange + cfg.tower.rangeGrowth * (L - 1)
+  const per = cfg.tower.rangeGrowth * Math.max(0, perLevelMult)
+  return cfg.tower.baseRange + per * (L - 1)
 }
 
 export type ModuleAggregate = {
@@ -189,14 +197,18 @@ export function aggregateModules(state: GameState, cfg: GameConfig): ModuleAggre
 
 export function towerMultiShotCount(state: GameState, cfg: GameConfig): number {
   const L = Math.max(1, Math.floor((state.towerUpgrades as any).multiShotLevel ?? 1))
+  const eff = Math.max(0, L - 1)
+  const mult = labMult(state, 'multiShot')
+  const effectiveL = 1 + Math.floor(eff * mult)
   const max = Math.max(1, Math.floor(cfg.tower.upgrades.maxLevels.multiShot ?? 4))
-  return clamp(L, 1, max)
+  return clamp(effectiveL, 1, max)
 }
 
 export function towerEnemySpeedMult(state: GameState, cfg: GameConfig): number {
   const L = Math.max(1, Math.floor((state.towerUpgrades as any).slowLevel ?? 1))
   const eff = Math.max(0, L - 1)
-  const raw = 1 - cfg.tower.upgrades.slowPerLevel * eff
+  const mult = labMult(state, 'slow')
+  const raw = 1 - cfg.tower.upgrades.slowPerLevel * mult * eff
   return clamp(raw, cfg.tower.upgrades.slowMinMult, 1)
 }
 
@@ -208,6 +220,7 @@ export function effectiveEnemySpeedMult(state: GameState, cfg: GameConfig, mods?
 export function effectiveCritParams(state: GameState, cfg: GameConfig, mods?: ModuleAggregate): { everyN: number; mult: number } {
   const m = mods ?? aggregateModules(state, cfg)
   const skills = aggregateSkillPassives(state)
+  const multLab = labMult(state, 'crit')
 
   const L = Math.max(1, Math.floor((state.towerUpgrades as any).critLevel ?? 1))
   const eff = Math.max(0, L - 1)
@@ -215,9 +228,9 @@ export function effectiveCritParams(state: GameState, cfg: GameConfig, mods?: Mo
   let towerEveryN = Number.POSITIVE_INFINITY
   let towerMult = 1
   if (eff > 0) {
-    const rawN = cfg.tower.upgrades.critEveryNBase - cfg.tower.upgrades.critEveryNReducePerLevel * eff
+    const rawN = cfg.tower.upgrades.critEveryNBase - cfg.tower.upgrades.critEveryNReducePerLevel * multLab * eff
     towerEveryN = clamp(Math.floor(rawN), cfg.tower.upgrades.critEveryNMin, cfg.tower.upgrades.critEveryNBase)
-    towerMult = 1 + cfg.tower.upgrades.critMultPerLevel * eff
+    towerMult = 1 + cfg.tower.upgrades.critMultPerLevel * multLab * eff
   }
 
   const everyN = Math.min(towerEveryN, m.critEveryN)
@@ -246,20 +259,23 @@ export function critAverageDamageMult(state: GameState, cfg: GameConfig, mods?: 
 
 export function towerArmorPierceBonus(state: GameState, cfg: GameConfig): number {
   const L = Math.max(1, Math.floor((state.towerUpgrades as any).armorPierceLevel ?? 1))
-  const per = cfg.tower.upgrades.armorPiercePerLevel
+  const mult = labMult(state, 'armorPierce')
+  const per = cfg.tower.upgrades.armorPiercePerLevel * mult
   const bonus = per * (L - 1)
   return clamp(bonus, 0, 0.9)
 }
 
 export function towerGoldMult(state: GameState, cfg: GameConfig): number {
   const L = Math.max(1, Math.floor((state.towerUpgrades as any).goldLevel ?? 1))
-  const per = cfg.tower.upgrades.goldMultPerLevel
+  const mult = labMult(state, 'gold')
+  const per = cfg.tower.upgrades.goldMultPerLevel * mult
   return Math.max(0, 1 + per * (L - 1))
 }
 
 export function towerEscapeDamageMult(state: GameState, cfg: GameConfig): number {
   const L = Math.max(1, Math.floor((state.towerUpgrades as any).fortifyLevel ?? 1))
-  const per = cfg.tower.upgrades.fortifyPerLevel
+  const mult = labMult(state, 'fortify')
+  const per = cfg.tower.upgrades.fortifyPerLevel * mult
   const min = cfg.tower.upgrades.fortifyMinMult
   const raw = 1 - per * (L - 1)
   const skills = aggregateSkillPassives(state)
@@ -268,7 +284,8 @@ export function towerEscapeDamageMult(state: GameState, cfg: GameConfig): number
 
 export function towerRepairPctPerSec(state: GameState, cfg: GameConfig): number {
   const L = Math.max(1, Math.floor((state.towerUpgrades as any).repairLevel ?? 1))
-  const per = cfg.tower.upgrades.repairPctPerSecPerLevel
+  const mult = labMult(state, 'repair')
+  const per = cfg.tower.upgrades.repairPctPerSecPerLevel * mult
   const cap = cfg.tower.upgrades.repairMaxPctPerSec
   const skills = aggregateSkillPassives(state)
   return clamp(per * (L - 1) * Math.max(0, skills.repairPctMult), 0, cap)
@@ -277,12 +294,14 @@ export function towerRepairPctPerSec(state: GameState, cfg: GameConfig): number 
 export function calcDPS(state: GameState, cfg: GameConfig): number {
   const mods = aggregateModules(state, cfg)
   const skills = aggregateSkillPassives(state)
+  const dmgMultLab = labMult(state, 'damage')
+  const frMultLab = labMult(state, 'fireRate')
   const critAvg = critAverageDamageMult(state, cfg, mods)
   const dmg =
-    (baseDmg(state.towerUpgrades.damageLevel, cfg) * mods.dmgMult * skills.dmgMult + mods.dmgFlat) *
+    (baseDmg(state.towerUpgrades.damageLevel, cfg, dmgMultLab) * mods.dmgMult * skills.dmgMult + mods.dmgFlat) *
     critAvg *
     calcPrestigeMult(state.prestigePoints, cfg)
-  const rate = fireRate(state.towerUpgrades.fireRateLevel, cfg) * (1 + mods.fireRateBonus + skills.fireRateBonus)
+  const rate = fireRate(state.towerUpgrades.fireRateLevel, cfg, frMultLab) * (1 + mods.fireRateBonus + skills.fireRateBonus)
   return Math.max(0, dmg * rate)
 }
 
