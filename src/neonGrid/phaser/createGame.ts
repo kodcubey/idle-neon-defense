@@ -70,6 +70,9 @@ export function createGame(args: {
 }): NeonGridGame {
   const cfg = args.config
 
+  const dpr = typeof window !== 'undefined' && typeof window.devicePixelRatio === 'number' && Number.isFinite(window.devicePixelRatio) ? window.devicePixelRatio : 1
+  const resolution = Math.max(1, Math.min(2, dpr))
+
   let simListener: ((pub: SimPublic) => void) | null = null
 
   // Phaser scenes create the SimEngine asynchronously (in Scene.create()).
@@ -91,6 +94,11 @@ export function createGame(args: {
     type: Phaser.AUTO,
     parent: args.parent,
     backgroundColor: cfg.ui.palette.bg,
+    render: {
+      antialias: true,
+      pixelArt: false,
+      roundPixels: false,
+    },
     scale: {
       mode: Phaser.Scale.RESIZE,
       autoCenter: Phaser.Scale.CENTER_BOTH,
@@ -101,6 +109,9 @@ export function createGame(args: {
     },
     scene: [BootScene, GameScene],
   }
+
+  // Phaser supports a game resolution setting, but some type defs don't expose it.
+  ;(phaserConfig as any).resolution = resolution
 
   const game = new Phaser.Game(phaserConfig)
 

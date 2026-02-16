@@ -23,6 +23,7 @@ export class GameScene extends Phaser.Scene {
   private prevEnemyHP = new Map<number, number>()
   private prevEnemyAlive = new Map<number, boolean>()
   private enemyHitFx = new Map<number, { untilSec: number; crit: boolean }>()
+  private prevEnemyPos = new Map<number, { x: number; y: number }>()
 
   private enemyDeathFx: Array<{ x: number; y: number; t0: number; kind: 'kill' | 'escape' }> = []
 
@@ -33,6 +34,10 @@ export class GameScene extends Phaser.Scene {
   private muzzleFxUntilSec = 0
   private muzzleCritUntilSec = 0
   private prevBaseHP = Number.NaN
+
+  private towerPulseUntilSec = 0
+  private baseImpactUntilSec = 0
+  private lastImpactShakeAtSec = -999
 
   constructor() {
     super('Game')
@@ -264,6 +269,16 @@ export class GameScene extends Phaser.Scene {
     const towerY = pub.tower.pos.y + towerBob
     this.drawTower({ x: towerX, y: towerY, t: this.vTimeSec, reduceFx, cyan, magenta, lime, text })
 
+    // Tower pulse/recoil feedback on shots (purely visual).
+    if (!reduceFx && this.vTimeSec < this.towerPulseUntilSec) {
+      const k = clamp01((this.towerPulseUntilSec - this.vTimeSec) / 0.14)
+      const r = 16 + (1 - k) * 26
+      this.fx.lineStyle(2, lime, 0.10 * k)
+      this.fx.strokeCircle(towerX, towerY, r)
+      this.fx.lineStyle(2, cyan, 0.06 * k)
+      this.fx.strokeCircle(towerX, towerY, r * 0.72)
+    }
+
     // Base HP (shown as a bar above the tower/base)
     const maxHP = Math.max(1, calcBaseHPMax(pub.state, this.cfg))
     const hpPct = clamp01(pub.state.baseHP / maxHP)
@@ -284,10 +299,29 @@ export class GameScene extends Phaser.Scene {
       if (!reduceFx) {
         this.enemyDeathFx.push({ x: pub.tower.pos.x, y: pub.tower.pos.y, t0: this.vTimeSec, kind: 'escape' })
         this.muzzleFxUntilSec = Math.max(this.muzzleFxUntilSec, this.vTimeSec + 0.08)
+        this.baseImpactUntilSec = Math.max(this.baseImpactUntilSec, this.vTimeSec + 0.45)
         this.cameras.main.shake(90, 0.002)
       }
     }
     this.prevBaseHP = pub.state.baseHP
+
+    // Base impact / escape shockwave + subtle screen flash.
+    if (!reduceFx && this.vTimeSec < this.baseImpactUntilSec) {
+      const k = clamp01((this.baseImpactUntilSec - this.vTimeSec) / 0.45)
+      const b = pub.arena.baseHalfSize
+      const r1 = b + (1 - k) * 120
+      const r2 = b * 0.9 + (1 - k) * 70
+      this.fx.lineStyle(3, danger, 0.16 * k)
+      this.fx.strokeCircle(pub.arena.center.x, pub.arena.center.y, r1)
+      this.fx.lineStyle(2, magenta, 0.08 * k)
+      this.fx.strokeCircle(pub.arena.center.x, pub.arena.center.y, r2)
+      this.fx.fillStyle(danger, 0.020 * k)
+      this.fx.fillCircle(pub.arena.center.x, pub.arena.center.y, r2)
+
+      // Full-screen flash to sell the "escape hit".
+      this.fx.fillStyle(danger, 0.018 * k)
+      this.fx.fillRect(0, 0, w, h)
+    }
 
     // Range ring (subtle)
     const rangeAlpha = reduceFx ? 0.16 : 0.12 + 0.06 * (0.5 + 0.5 * Math.sin(this.vTimeSec * 1.15))
@@ -316,6 +350,12 @@ export class GameScene extends Phaser.Scene {
           // Also drive enemy hit flash so impacts + enemy feedback match.
           // If the enemy died this frame, the death burst will dominate anyway.
           this.setEnemyHitFx(p.targetEnemyId, crit ? 0.22 : 0.16, crit)
+
+          // Small camera shake on crit impacts (throttled).
+          if (crit && this.vTimeSec - this.lastImpactShakeAtSec > 0.12) {
+            this.lastImpactShakeAtSec = this.vTimeSec
+            this.cameras.main.shake(55, 0.0014)
+          }
         }
 
         if (!p.alive) continue
@@ -370,6 +410,7 @@ export class GameScene extends Phaser.Scene {
       if (!reduceFx && shotThisFrame) {
         this.muzzleFxUntilSec = Math.max(this.muzzleFxUntilSec, this.vTimeSec + 0.09)
         if (critShotThisFrame) this.muzzleCritUntilSec = Math.max(this.muzzleCritUntilSec, this.vTimeSec + 0.12)
+        this.towerPulseUntilSec = Math.max(this.towerPulseUntilSec, this.vTimeSec + (critShotThisFrame ? 0.18 : 0.14))
       }
     }
 
@@ -446,9 +487,13 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Enemies
+    const drawEnemyTrails = !reduceFx && pub.enemies.length <= 260
     for (const e of pub.enemies) {
       const prevAlive = this.prevEnemyAlive.get(e.id) ?? false
       const prevHP = this.prevEnemyHP.get(e.id)
+
+      const prevPos = this.prevEnemyPos.get(e.id)
+      this.prevEnemyPos.set(e.id, { x: e.x, y: e.y })
 
       // Detect damage and transitions.
       if (e.alive) {
@@ -470,16 +515,51 @@ export class GameScene extends Phaser.Scene {
 
       const baseColor = Phaser.Display.Color.HexStringToColor(e.color).color
       const wobble = reduceFx ? 0 : 0.6 * Math.sin(this.vTimeSec * 2.6 + e.id * 0.7)
-      const r = 7 + wobble * 0.5
+      let r = 7 + wobble * 0.5
+
+      // Hit "pulse/squash" illusion: brief overshoot in size + ellipse squash.
+      // This sells impact without changing sim state.
+      const hit = !reduceFx ? this.enemyHitFx.get(e.id) : undefined
+      let hitPulse = 0
+      let hitCrit = false
+      if (hit && hit.untilSec > this.vTimeSec) {
+        const dur = hit.crit ? 0.22 : 0.16
+        const t = clamp01(1 - (hit.untilSec - this.vTimeSec) / dur) // 0..1
+        // Damped overshoot curve: fast pop then settle.
+        const pop = Math.sin(Math.min(1, t) * Math.PI)
+        hitPulse = pop * pop
+        hitCrit = hit.crit
+        const amp = hitCrit ? 0.28 : 0.18
+        r = r * (1 + amp * hitPulse)
+      }
+
+      // Motion trail to make enemies feel faster/more "alive".
+      if (drawEnemyTrails && prevPos && prevAlive) {
+        const dx = e.x - prevPos.x
+        const dy = e.y - prevPos.y
+        const dist = Math.hypot(dx, dy)
+        const a = clamp01(dist / 10)
+        this.fx.lineStyle(3, baseColor, 0.05 * a)
+        this.fx.lineBetween(prevPos.x, prevPos.y, e.x, e.y)
+        this.fx.fillStyle(baseColor, 0.035 * a)
+        this.fx.fillCircle(e.x, e.y, r + 4)
+      }
+
       this.gfx.fillStyle(baseColor, 0.95)
-      this.gfx.fillCircle(e.x, e.y, r)
+      if (!reduceFx && hitPulse > 0.0001) {
+        const squash = hitCrit ? 0.22 : 0.16
+        const sx = 1 + squash * hitPulse
+        const sy = 1 - 0.5 * squash * hitPulse
+        this.gfx.fillEllipse(e.x, e.y, r * 2 * sx, r * 2 * sy)
+      } else {
+        this.gfx.fillCircle(e.x, e.y, r)
+      }
 
       if (!reduceFx) {
         this.fx.lineStyle(2, baseColor, 0.08)
         this.fx.strokeCircle(e.x, e.y, r + 3.5)
       }
 
-      const hit = this.enemyHitFx.get(e.id)
       if (!reduceFx && hit && hit.untilSec > this.vTimeSec) {
         const dur = hit.crit ? 0.22 : 0.16
         const k = clamp01((hit.untilSec - this.vTimeSec) / dur)
@@ -488,6 +568,23 @@ export class GameScene extends Phaser.Scene {
         this.fx.strokeCircle(e.x, e.y, r + 5 + (1 - k) * (hit.crit ? 9 : 6))
         this.fx.lineStyle(2, magenta, 0.06 * k)
         this.fx.strokeCircle(e.x, e.y, r + 2 + (1 - k) * (hit.crit ? 6 : 4))
+
+        // Extra hit sparks around the enemy.
+        const rays = hit.crit ? 6 : 4
+        const baseLen = hit.crit ? 16 : 12
+        const phase = (e.id % 19) * 0.41
+        for (let i = 0; i < rays; i++) {
+          const a = phase + this.vTimeSec * (hit.crit ? 5.0 : 4.2) + (i / rays) * Math.PI * 2
+          const len = baseLen * (0.7 + 0.3 * Math.sin(phase + i * 1.9))
+          const x0 = e.x + Math.cos(a) * (r + 2)
+          const y0 = e.y + Math.sin(a) * (r + 2)
+          const x1 = x0 + Math.cos(a) * len * k
+          const y1 = y0 + Math.sin(a) * len * k
+          this.fx.lineStyle(hit.crit ? 3 : 2, hc, (hit.crit ? 0.12 : 0.10) * k)
+          this.fx.lineBetween(x0, y0, x1, y1)
+          this.fx.lineStyle(2, magenta, 0.045 * k)
+          this.fx.lineBetween(x0, y0, x1, y1)
+        }
       }
 
       // HP bar
@@ -507,6 +604,14 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Cleanup enemy positions.
+    if (this.prevEnemyPos.size > 2400) {
+      for (const [id, _] of this.prevEnemyPos) {
+        const alive = this.prevEnemyAlive.get(id)
+        if (!alive) this.prevEnemyPos.delete(id)
+      }
+    }
+
     // Death/escape bursts.
     if (!reduceFx && this.enemyDeathFx.length > 0) {
       const keep: typeof this.enemyDeathFx = []
@@ -517,11 +622,63 @@ export class GameScene extends Phaser.Scene {
 
         const k = clamp01(1 - age / 0.35)
         const r = 10 + age * 70
-        const c = fx.kind === 'kill' ? cyan : danger
-        this.fx.lineStyle(2, c, 0.16 * k)
+        const primary = fx.kind === 'kill' ? cyan : danger
+        const accent = fx.kind === 'kill' ? lime : magenta
+
+        // Multi-ring bloom.
+        this.fx.lineStyle(3, primary, 0.16 * k)
         this.fx.strokeCircle(fx.x, fx.y, r)
-        this.fx.fillStyle(c, 0.02 * k)
-        this.fx.fillCircle(fx.x, fx.y, r * 0.55)
+        this.fx.lineStyle(2, accent, 0.085 * k)
+        this.fx.strokeCircle(fx.x, fx.y, r * 0.78)
+        this.fx.lineStyle(2, primary, 0.06 * k)
+        this.fx.strokeCircle(fx.x, fx.y, r * 1.08)
+
+        // Inner glow + dark core for contrast.
+        this.fx.fillStyle(primary, (fx.kind === 'kill' ? 0.020 : 0.030) * k)
+        this.fx.fillCircle(fx.x, fx.y, r * 0.58)
+        this.fx.fillStyle(0x000000, 0.030 * k)
+        this.fx.fillCircle(fx.x, fx.y, r * 0.24)
+
+        // Shard rays.
+        const rays = fx.kind === 'kill' ? 7 : 10
+        const baseLen = fx.kind === 'kill' ? 24 : 30
+        const phase = (Math.floor(fx.x * 0.7 + fx.y * 0.9) % 29) * 0.31
+        const spin = (fx.kind === 'kill' ? 1 : -1) * age * 8.0
+        for (let i = 0; i < rays; i++) {
+          const a = phase + spin + (i / rays) * Math.PI * 2
+          const len = baseLen * (0.65 + 0.35 * Math.sin(phase + i * 2.0))
+          const x0 = fx.x + Math.cos(a) * (6 + (1 - k) * 3)
+          const y0 = fx.y + Math.sin(a) * (6 + (1 - k) * 3)
+          const x1 = x0 + Math.cos(a) * len * k
+          const y1 = y0 + Math.sin(a) * len * k
+          this.fx.lineStyle(3, primary, 0.10 * k)
+          this.fx.lineBetween(x0, y0, x1, y1)
+          this.fx.lineStyle(2, accent, 0.05 * k)
+          this.fx.lineBetween(x0, y0, x1, y1)
+        }
+
+        // Escape swirl: a couple of spiral arcs to make escapes feel different.
+        if (fx.kind === 'escape') {
+          const turns = 2
+          const steps = 14
+          const swirlR0 = 6
+          const swirlR1 = 56
+          for (let t = 0; t < turns; t++) {
+            const ph = phase + t * 1.3
+            this.fx.lineStyle(2, danger, 0.06 * k)
+            this.fx.beginPath()
+            for (let i = 0; i <= steps; i++) {
+              const u = i / steps
+              const a = ph + u * Math.PI * 2 * 0.9 + age * 5.2
+              const rr = swirlR0 + (swirlR1 - swirlR0) * u
+              const x = fx.x + Math.cos(a) * rr
+              const y = fx.y + Math.sin(a) * rr
+              if (i === 0) this.fx.moveTo(x, y)
+              else this.fx.lineTo(x, y)
+            }
+            this.fx.strokePath()
+          }
+        }
       }
       this.enemyDeathFx = keep
     }
@@ -585,6 +742,15 @@ export class GameScene extends Phaser.Scene {
     const glowR = 14 + 1.5 * (0.5 + 0.5 * Math.sin(t * 2.0 + 0.4))
     this.fx.lineStyle(2, magenta, 0.12)
     this.fx.strokeCircle(x, y, glowR)
+
+    // Extra glow on recent shots.
+    if (t < this.towerPulseUntilSec) {
+      const k = clamp01((this.towerPulseUntilSec - t) / 0.18)
+      this.fx.lineStyle(2, lime, 0.10 * k)
+      this.fx.strokeCircle(x, y, glowR + 7 + (1 - k) * 10)
+      this.fx.fillStyle(lime, 0.018 * k)
+      this.fx.fillCircle(x, y, glowR + 6)
+    }
 
     // Orbiting accent dot.
     const oa = t * 2.6

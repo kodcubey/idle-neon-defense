@@ -673,6 +673,17 @@ input[type="range"]::-webkit-slider-thumb {
   letter-spacing: -0.01em;
 }
 
+.kv.kv-cyan .v { color: var(--neon-cyan); }
+.kv.kv-magenta .v { color: var(--neon-magenta); }
+.kv.kv-lime .v { color: var(--neon-lime); }
+
+.ng-resources-bar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+
 .hud-kpi {
   display: flex;
   align-items: center;

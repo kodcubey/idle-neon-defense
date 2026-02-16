@@ -24,8 +24,8 @@ export function hr(): HTMLDivElement {
   return d
 }
 
-export function kv(k: string, v: string, mono = false): HTMLDivElement {
-  const box = el('div', 'kv')
+export function kv(k: string, v: string, mono = false, extraClass?: string): HTMLDivElement {
+  const box = el('div', 'kv' + (extraClass ? ` ${extraClass}` : ''))
   const kk = el('div', 'k')
   kk.textContent = k
   const vv = el('div', 'v' + (mono ? ' mono' : ''))

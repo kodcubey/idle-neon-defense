@@ -25,6 +25,7 @@ import {
 } from '../sim/deterministic'
 import {
   finalizeResearchIfComplete,
+  labEffectMult,
   labEffectMultForKey,
   labLevel,
   researchCostPointsForNext,
@@ -482,6 +483,22 @@ export function createUIStateMachine(args: UIArgs) {
     }, 60)
   }
 
+  function renderResourcesBar(stateLike: any) {
+    const bar = el('div', 'ng-resources-bar')
+    const lvl = Math.max(0, Math.floor(stateLike?.skills?.level ?? 0))
+    const xp = Math.max(0, Math.floor(stateLike?.skills?.xp ?? 0))
+    const sp = Math.max(0, Math.floor(stateLike?.skills?.skillPoints ?? 0))
+    const nextXP = xpToNext(lvl)
+    const pal = formatPaladyumInt(Math.max(0, Math.floor(Number(stateLike?.points ?? 0))))
+    bar.append(
+      kv('Level', String(lvl), true, 'kv-cyan'),
+      kv('XP', `${xp}/${nextXP}`, true, 'kv-cyan'),
+      kv('Skill Pts', String(sp), true, sp > 0 ? 'kv-magenta' : undefined),
+      kv('Paladyum', pal, true, 'kv-lime'),
+    )
+    return bar
+  }
+
   function renderMenu() {
     const layout = el('div', 'ng-menu-layout')
 
@@ -498,17 +515,14 @@ export function createUIStateMachine(args: UIArgs) {
 
     const body = el('div', 'panel-body')
 
-    // Compact info row
-    const infoRow = el('div', 'muted')
-    infoRow.style.fontSize = '11px'
-    infoRow.style.display = 'flex'
-    infoRow.style.gap = '12px'
-    infoRow.style.flexWrap = 'wrap'
+    const infoRow = el('div')
     infoRow.style.marginBottom = '14px'
-    const menuLvl = Math.max(0, Math.floor((lastState as any)?.skills?.level ?? 0))
-    const menuXp = Math.max(0, Math.floor((lastState as any)?.skills?.xp ?? 0))
-    const menuNextXp = xpToNext(menuLvl)
-    infoRow.innerHTML = `<span>Level: <span class="mono">${menuLvl}</span></span><span>XP: <span class="mono">${menuXp}/${menuNextXp}</span></span><span>Paladyum: <span class="mono" style="color:var(--neon-lime)">${formatPaladyumInt(Math.max(0, Number((lastState as any)?.points ?? 0)))}</span></span><span>Deterministic \u2022 No RNG</span>`
+    infoRow.appendChild(renderResourcesBar(lastState as any))
+    const note = el('div', 'muted')
+    note.style.fontSize = '11px'
+    note.style.marginTop = '6px'
+    note.textContent = 'Deterministic • No RNG'
+    infoRow.appendChild(note)
 
     const row = el('div', 'ng-menu-actions')
     row.style.marginTop = '0'
@@ -693,8 +707,8 @@ export function createUIStateMachine(args: UIArgs) {
 
     const b = el('div', 'panel-body ng-meta-body')
 
-    const bal = el('div', 'muted ng-meta-balance')
-    bal.innerHTML = `Paladyum: <span class="mono">${formatPaladyumInt(lastState.points)}</span>`
+    const bal = renderResourcesBar(lastState as any)
+    bal.classList.add('ng-meta-balance')
 
     const top = el('div', 'ng-meta-top')
     const tabs = renderUpgradesTabs(() => {
@@ -899,9 +913,8 @@ export function createUIStateMachine(args: UIArgs) {
     const lab = finalizeResearchIfComplete(sanitizeLabState((state as any).lab), nowUTC)
     const active = lab?.research ?? null
 
-    const bal = el('div', 'muted')
+    const bal = renderResourcesBar(state as any)
     bal.style.marginBottom = '10px'
-    bal.innerHTML = `Paladyum: <span class="mono">${formatPaladyumInt(state.points)}</span>`
     b.appendChild(bal)
 
     const labPanel = el('div', 'ng-lab-panel')
@@ -931,52 +944,53 @@ export function createUIStateMachine(args: UIArgs) {
       return v.toFixed(3)
     }
 
-    const coefHtml = (key: TowerUpgradeKey, mult: number): string => {
-      const m = Math.max(0, mult)
+    const coefHtml = (key: TowerUpgradeKey, multNow: number, multNext: number): string => {
+      const m0 = Math.max(0, multNow)
+      const m1 = Math.max(0, multNext)
       switch (key) {
         case 'damage': {
           const base = config.progression.dmgGrowthD
-          return `Growth: <span class="mono">${fmtCoef(base)}</span> → <span class="mono">${fmtCoef(base * m)}</span>`
+          return `Growth: <span class="mono">${fmtCoef(base * m0)}</span> → <span class="mono">${fmtCoef(base * m1)}</span>`
         }
         case 'fireRate': {
           const base = config.progression.fireRateLogK
-          return `k: <span class="mono">${fmtCoef(base)}</span> → <span class="mono">${fmtCoef(base * m)}</span>`
+          return `k: <span class="mono">${fmtCoef(base * m0)}</span> → <span class="mono">${fmtCoef(base * m1)}</span>`
         }
         case 'range': {
           const base = config.tower.rangeGrowth
-          return `Per Lv: <span class="mono">${fmtCoef(base)}</span> → <span class="mono">${fmtCoef(base * m)}</span>`
+          return `Per Lv: <span class="mono">${fmtCoef(base * m0)}</span> → <span class="mono">${fmtCoef(base * m1)}</span>`
         }
         case 'baseHP': {
           const base = config.tower.baseHPGrowth
-          return `Growth: <span class="mono">${fmtCoef(base)}</span> → <span class="mono">${fmtCoef(base * m)}</span>`
+          return `Growth: <span class="mono">${fmtCoef(base * m0)}</span> → <span class="mono">${fmtCoef(base * m1)}</span>`
         }
         case 'armorPierce': {
           const base = config.tower.upgrades.armorPiercePerLevel
-          return `Per Lv: <span class="mono">${fmtCoef(base)}</span> → <span class="mono">${fmtCoef(base * m)}</span>`
+          return `Per Lv: <span class="mono">${fmtCoef(base * m0)}</span> → <span class="mono">${fmtCoef(base * m1)}</span>`
         }
         case 'slow': {
           const base = config.tower.upgrades.slowPerLevel
-          return `Per Lv: <span class="mono">${fmtCoef(base)}</span> → <span class="mono">${fmtCoef(base * m)}</span>`
+          return `Per Lv: <span class="mono">${fmtCoef(base * m0)}</span> → <span class="mono">${fmtCoef(base * m1)}</span>`
         }
         case 'fortify': {
           const base = config.tower.upgrades.fortifyPerLevel
-          return `Per Lv: <span class="mono">${fmtCoef(base)}</span> → <span class="mono">${fmtCoef(base * m)}</span>`
+          return `Per Lv: <span class="mono">${fmtCoef(base * m0)}</span> → <span class="mono">${fmtCoef(base * m1)}</span>`
         }
         case 'repair': {
           const base = config.tower.upgrades.repairPctPerSecPerLevel
-          return `Per Lv: <span class="mono">${fmtCoef(base)}</span> → <span class="mono">${fmtCoef(base * m)}</span>`
+          return `Per Lv: <span class="mono">${fmtCoef(base * m0)}</span> → <span class="mono">${fmtCoef(base * m1)}</span>`
         }
         case 'gold': {
           const base = config.tower.upgrades.goldMultPerLevel
-          return `Per Lv: <span class="mono">${fmtCoef(base)}</span> → <span class="mono">${fmtCoef(base * m)}</span>`
+          return `Per Lv: <span class="mono">${fmtCoef(base * m0)}</span> → <span class="mono">${fmtCoef(base * m1)}</span>`
         }
         case 'crit': {
           const baseReduce = config.tower.upgrades.critEveryNReducePerLevel
           const baseMult = config.tower.upgrades.critMultPerLevel
-          return `Reduce: <span class="mono">${fmtCoef(baseReduce)}</span> → <span class="mono">${fmtCoef(baseReduce * m)}</span> • Mult: <span class="mono">${fmtCoef(baseMult)}</span> → <span class="mono">${fmtCoef(baseMult * m)}</span>`
+          return `Reduce: <span class="mono">${fmtCoef(baseReduce * m0)}</span> → <span class="mono">${fmtCoef(baseReduce * m1)}</span> • Mult: <span class="mono">${fmtCoef(baseMult * m0)}</span> → <span class="mono">${fmtCoef(baseMult * m1)}</span>`
         }
         case 'multiShot': {
-          return `Level mult: <span class="mono">x${m.toFixed(2)}</span>`
+          return `Level mult: <span class="mono">x${m0.toFixed(2)}</span> → <span class="mono">x${m1.toFixed(2)}</span>`
         }
       }
     }
@@ -991,14 +1005,15 @@ export function createUIStateMachine(args: UIArgs) {
       const card = el('div', 'ng-lab-card')
 
       const level = labLevel(lab, key)
-      const mult = labEffectMultForKey(lab, key)
+      const multNow = labEffectMultForKey(lab, key)
+      const multNext = labEffectMult(level + 1)
 
       const hh = el('div', 'ng-lab-card-head')
       hh.textContent = `${labelForKey[key]} • Lv ${level}`
 
       const coef = el('div', 'muted')
       coef.style.fontSize = '11px'
-      coef.innerHTML = coefHtml(key, mult)
+      coef.innerHTML = coefHtml(key, multNow, multNext)
 
       const actions = el('div', 'ng-lab-actions')
 
@@ -1127,12 +1142,9 @@ export function createUIStateMachine(args: UIArgs) {
     const b = el('div', 'panel-body')
     const topRow = el('div', 'ng-skills-top')
 
-    const lvl = Math.max(0, Math.floor(state.skills?.level ?? 0))
-    const xp = Math.max(0, Math.floor(state.skills?.xp ?? 0))
     const sp = Math.max(0, Math.floor(state.skills?.skillPoints ?? 0))
-    const nextXP = xpToNext(lvl)
-    const bal = el('div', 'muted')
-    bal.innerHTML = `Level: <span class="mono">${lvl}</span> • XP: <span class="mono">${xp}/${nextXP}</span> • Skill Points: <span class="mono">${sp}</span> • Paladyum: <span class="mono">${formatPaladyumInt(state.points)}</span>`
+
+    const bal = renderResourcesBar(state as any)
 
     const tabs = renderSkillsTabs(() => {
       overlay.remove()
@@ -1862,8 +1874,8 @@ export function createUIStateMachine(args: UIArgs) {
 
     const layout = el('div', 'ng-modules-layout')
 
-    const bal = el('div', 'muted ng-modules-balance')
-    bal.innerHTML = `Paladyum: <span class="mono">${formatPaladyumInt(lastState.points)}</span>`
+    const bal = renderResourcesBar(lastState as any)
+    bal.classList.add('ng-modules-balance')
 
     const renderEffectList = (text: string): HTMLElement => {
       const ul = document.createElement('ul')

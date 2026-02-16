@@ -90,12 +90,46 @@ export function sanitizeLabState(input: any): LabState {
 // Example: 3 levels => +9% per-level effects.
 const EFFECT_PER_LEVEL_BONUS = 0.03
 
-// Research time grows in hours and is intentionally expensive.
-const RESEARCH_BASE_HOURS = 2
-const RESEARCH_TIME_GROWTH = 1.55
+type LabBalanceProfile = {
+  baseHours: number
+  timeGrowth: number
+  pointsBase: number
+  pointsGrowth: number
+  boostPointsMult: number
+}
 
-const RESEARCH_POINTS_BASE = 90
-const RESEARCH_POINTS_GROWTH = 1.6
+const DEFAULT_PROFILE: LabBalanceProfile = {
+  baseHours: 2,
+  timeGrowth: 1.55,
+  pointsBase: 90,
+  pointsGrowth: 1.6,
+  boostPointsMult: 1,
+}
+
+// Per-lab balance profiles.
+// Goal: different labs feel meaningfully different while keeping growth deterministic.
+const LAB_PROFILE: Record<LabKey, LabBalanceProfile> = {
+  // Offense
+  damage: { baseHours: 2.2, timeGrowth: 1.53, pointsBase: 95, pointsGrowth: 1.58, boostPointsMult: 1.0 },
+  fireRate: { baseHours: 2.2, timeGrowth: 1.53, pointsBase: 95, pointsGrowth: 1.58, boostPointsMult: 1.0 },
+  crit: { baseHours: 2.8, timeGrowth: 1.55, pointsBase: 110, pointsGrowth: 1.60, boostPointsMult: 1.08 },
+  multiShot: { baseHours: 3.2, timeGrowth: 1.56, pointsBase: 125, pointsGrowth: 1.62, boostPointsMult: 1.12 },
+  armorPierce: { baseHours: 2.9, timeGrowth: 1.55, pointsBase: 115, pointsGrowth: 1.61, boostPointsMult: 1.10 },
+
+  // Defense
+  baseHP: { baseHours: 2.6, timeGrowth: 1.54, pointsBase: 105, pointsGrowth: 1.60, boostPointsMult: 1.05 },
+  slow: { baseHours: 1.8, timeGrowth: 1.50, pointsBase: 85, pointsGrowth: 1.56, boostPointsMult: 0.92 },
+  fortify: { baseHours: 2.9, timeGrowth: 1.55, pointsBase: 112, pointsGrowth: 1.61, boostPointsMult: 1.08 },
+  repair: { baseHours: 2.4, timeGrowth: 1.53, pointsBase: 98, pointsGrowth: 1.58, boostPointsMult: 1.00 },
+
+  // Utility
+  range: { baseHours: 2.0, timeGrowth: 1.52, pointsBase: 92, pointsGrowth: 1.57, boostPointsMult: 0.98 },
+  gold: { baseHours: 2.7, timeGrowth: 1.55, pointsBase: 130, pointsGrowth: 1.62, boostPointsMult: 1.15 },
+}
+
+function labProfile(key: LabKey): LabBalanceProfile {
+  return LAB_PROFILE[key] ?? DEFAULT_PROFILE
+}
 
 // Boosting uses Paladyum to reduce remaining time.
 const BOOST_POINTS_BASE = 35
@@ -121,10 +155,11 @@ export function nextResearchLevel(lab: LabState, key: LabKey): number {
 }
 
 export function researchDurationSecForNext(lab: LabState, key: LabKey): number {
-  void key
   const nextL = nextResearchLevel(lab, key)
-  const hours = RESEARCH_BASE_HOURS * Math.pow(RESEARCH_TIME_GROWTH, Math.max(0, nextL - 1))
-  return Math.max(60, Math.floor(hours * 3600))
+  const p = labProfile(key)
+  const hours = Math.max(0.05, p.baseHours) * Math.pow(Math.max(1.05, p.timeGrowth), Math.max(0, nextL - 1))
+  // Keep a small minimum so level 1 isn't instant.
+  return Math.max(5 * 60, Math.floor(hours * 3600))
 }
 
 export function researchCostGoldForNext(lab: LabState, key: LabKey): number {
@@ -135,17 +170,21 @@ export function researchCostGoldForNext(lab: LabState, key: LabKey): number {
 }
 
 export function researchCostPointsForNext(lab: LabState, key: LabKey): number {
-  void key
   const nextL = nextResearchLevel(lab, key)
-  const raw = RESEARCH_POINTS_BASE * Math.pow(RESEARCH_POINTS_GROWTH, Math.max(0, nextL - 1))
+  const p = labProfile(key)
+  const raw = Math.max(1, p.pointsBase) * Math.pow(Math.max(1.05, p.pointsGrowth), Math.max(0, nextL - 1))
   return Math.max(0, Math.ceil(raw))
 }
 
 export function boostCostPoints(lab: LabState, key: LabKey, boostsUsed: number): number {
-  void key
   const baseL = nextResearchLevel(lab, key)
   const n = Math.max(0, Math.floor(boostsUsed))
-  const raw = BOOST_POINTS_BASE * Math.pow(BOOST_POINTS_GROWTH, Math.max(0, baseL - 1)) * Math.pow(1.08, n)
+  const p = labProfile(key)
+  const raw =
+    BOOST_POINTS_BASE *
+    Math.pow(BOOST_POINTS_GROWTH, Math.max(0, baseL - 1)) *
+    Math.pow(1.08, n) *
+    Math.max(0.75, p.boostPointsMult)
   return Math.max(1, Math.ceil(raw))
 }
 
