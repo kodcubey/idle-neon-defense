@@ -2,7 +2,8 @@ import Phaser from 'phaser'
 import type { GameConfig, GameState, RunSummary, WaveReport } from '../types'
 import { SimEngine, type SimCallbacks, type SimPublic } from '../sim/SimEngine'
 import { createNewState } from '../persistence/save'
-import { applyTowerMetaUpgrade, applyTowerUpgrade, equipModule, tryModuleUnlock, tryModuleUpgrade, tryUnlockModuleSlot } from '../sim/actions'
+import { applyTowerMetaUpgrade, applyTowerUpgrade, equipModule, respecSkills, tryBuySkill, tryModuleUnlock, tryModuleUpgrade, tryUnlockModuleSlot } from '../sim/actions'
+import type { SkillId } from '../skills/skills'
 import { BootScene } from './scenes/BootScene'
 import { GameScene } from './scenes/GameScene'
 
@@ -32,6 +33,9 @@ export type NeonGridGame = {
   equipModule: (slot: number, id: string | null) => boolean
 
   unlockModuleSlot: () => boolean
+
+  buySkill: (id: SkillId) => { ok: boolean; reason?: string }
+  respecSkills: () => { ok: boolean; cost: number }
 
   onSim: (cb: (pub: SimPublic) => void) => void
 }
@@ -205,6 +209,9 @@ export function createGame(args: {
       s.modulesEquipped = { ...prev.modulesEquipped }
       s.moduleSlotsUnlocked = prev.moduleSlotsUnlocked
 
+      // Skills persist across runs.
+      s.skills = structuredClone(prev.skills)
+
        // Permanent upgrades define starting tower upgrade levels.
        s.towerMetaUpgrades = { ...prev.towerMetaUpgrades }
        s.towerUpgrades = { ...prev.towerMetaUpgrades } as any
@@ -212,6 +219,22 @@ export function createGame(args: {
       applyState(s, 'hard')
       pendingPaused = false
       if (engine) engine.setPaused(false)
+    },
+
+    buySkill: (id) => {
+      const s = currentState()
+      const next = tryBuySkill({ state: s, cfg, id })
+      if (!next.ok) return { ok: false, reason: next.reason }
+      applyState(next.state, 'soft')
+      return { ok: true }
+    },
+
+    respecSkills: () => {
+      const s = currentState()
+      const next = respecSkills({ state: s, cfg })
+      if (!next.ok) return { ok: false, cost: next.cost }
+      applyState(next.state, 'soft')
+      return { ok: true, cost: next.cost }
     },
 
     buyUpgrade: (key, amount) => {

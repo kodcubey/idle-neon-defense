@@ -1,6 +1,6 @@
 # NEON GRID — Deterministic Idle Tower Defense (Web / Phaser 3)
 
-Tarih: 5 Şubat 2026
+Tarih: 5 Şubat 2026 (güncelleme: 16 Şubat 2026)
 
 Bu doküman “NEON GRID” için **RNG=0**, **sabit wave süresi**, **Kill Ratio cezası** ve **tam deterministik** bir idle tower defense tasarımını ve teknik mimarisini tanımlar.
 
@@ -78,6 +78,7 @@ Tema: Neon cyberpunk (near-black + grid + neon glow). Palet config’te sabittir
   - Auto ON/OFF
   - Pause
   - Settings
+  - Skills (Modal)
 
 **Mobile layout**
 
@@ -156,6 +157,25 @@ Tema: Neon cyberpunk (near-black + grid + neon glow). Palet config’te sabittir
 - Modül listesi ve unlock durumları
 - Enemy types listesi + deterministik formül açıklaması
 
+### J) Skills (Modal)
+
+Amaç: Wave sonu XP ile gelen **Level / Skill Point** ilerlemesini oyuncuya görünür kılmak ve 3 branch’li skill tree üzerinden kalıcı pasifler/proc’lar sunmak.
+
+- Üst satır KPI
+  - Level, XP/Next, Skill Points, Paladyum
+- Branch tab’leri
+  - Attack / Defense / Utility
+- Tier kuralları
+  - Tier 2/3/4 kilitleri: aynı branch içinde sırasıyla **2 / 4 / 6** skill (rank>0)
+  - **Tier‑1 cap**: her branch’te Tier‑1’den en fazla **6 farklı skill** unlock edilebilir
+    - Cap doluyken yeni Tier‑1 unlock engellenir
+    - Daha önce unlock edilmiş Tier‑1 skill rank up engellenmez
+- Respec
+  - Paladyum ile tüm skill’leri sıfırlar
+  - Maliyet her respec’te artar
+
+Not: Skills sistemi RNG kullanmaz; tüm tetiklemeler/sonuçlar deterministik kurallarla işler.
+
 ---
 
 ## 2) UI State Machine (Scene/View Geçişleri)
@@ -169,11 +189,13 @@ stateDiagram-v2
 
   Menu --> HUD: Continue/New Run
   HUD --> Modules
+  HUD --> Skills
   HUD --> Settings
   HUD --> Stats
   HUD --> Prestige
 
   Modules --> HUD
+  Skills --> HUD
   Settings --> HUD
   Stats --> HUD
   Prestige --> HUD

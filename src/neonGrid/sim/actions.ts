@@ -1,6 +1,7 @@
 import type { GameConfig, GameState, TowerUpgradeKey } from '../types'
 import { clamp, aggregateModules } from './deterministic'
-import { metaUpgradeCostPoints, moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from './costs'
+import { metaUpgradeCostPoints, moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, skillsRespecCostPoints, upgradeCost, upgradeMaxLevel } from './costs'
+import { aggregateSkillPassives, canBuySkill, defaultSkillState, getSkillRank, type SkillId } from '../skills/skills'
 
 export function applyTowerUpgrade(args: {
   state: GameState
@@ -11,18 +12,20 @@ export function applyTowerUpgrade(args: {
   const { cfg, key } = args
   const state: GameState = structuredClone(args.state)
 
+  const skills = aggregateSkillPassives(state)
+
   const cur = getUpgradeLevel(state, key)
   const maxL = upgradeMaxLevel(key, cfg)
   if (cur >= maxL) return { ok: false, state: args.state }
 
-  const buyCountRaw = args.amount === 'max' ? maxAffordableUpgrades(cur, state.gold, cfg, key, maxL) : args.amount
+  const buyCountRaw = args.amount === 'max' ? maxAffordableUpgrades(cur, state.gold, cfg, key, maxL, skills.shopGoldCostMult) : args.amount
   const buyCount = Math.min(buyCountRaw, Math.max(0, maxL - cur))
   if (buyCount <= 0) return { ok: false, state: args.state }
 
   // Sum discretely to stay consistent with maxAffordableUpgrades (and avoid float edge cases).
   let total = 0
   for (let i = 0; i < buyCount; i++) {
-    total += upgradeCost(key, cur + i, cfg)
+    total += upgradeCost(key, cur + i, cfg) * skills.shopGoldCostMult
     if (!Number.isFinite(total)) return { ok: false, state: args.state }
   }
   if (state.gold < total) return { ok: false, state: args.state }
@@ -124,7 +127,14 @@ function maxAffordableMetaUpgrades(currentLevel: number, points: number, cfg: Ga
   return n
 }
 
-function maxAffordableUpgrades(currentLevel: number, gold: number, cfg: GameConfig, key: Parameters<typeof upgradeMaxLevel>[0], maxL: number): number {
+function maxAffordableUpgrades(
+  currentLevel: number,
+  gold: number,
+  cfg: GameConfig,
+  key: Parameters<typeof upgradeMaxLevel>[0],
+  maxL: number,
+  shopGoldCostMult: number,
+): number {
   // Deterministic, bounded search.
   let n = 0
   let g = gold
@@ -132,7 +142,7 @@ function maxAffordableUpgrades(currentLevel: number, gold: number, cfg: GameConf
 
   for (let iter = 0; iter < 10_000; iter++) {
     if (L >= maxL) break
-    const c = upgradeCost(key, L, cfg)
+    const c = upgradeCost(key, L, cfg) * shopGoldCostMult
     if (g < c) break
     g -= c
     L++
@@ -219,8 +229,41 @@ export function calcBaseHPMax(state: GameState, cfg: GameConfig): number {
   const L = Math.max(1, Math.floor(state.towerUpgrades.baseHPLevel))
   const base = cfg.tower.baseHP0 * Math.pow(1 + cfg.tower.baseHPGrowth, L - 1)
   const mods = aggregateModules(state, cfg)
+  const skills = aggregateSkillPassives(state)
   const raw = base + mods.baseHPBonus
-  return Math.max(1, raw * mods.baseHPMult)
+  return Math.max(1, raw * mods.baseHPMult * skills.baseHPMult)
+}
+
+export function tryBuySkill(args: { state: GameState; cfg: GameConfig; id: SkillId }): { ok: boolean; state: GameState; reason?: string } {
+  const state: GameState = structuredClone(args.state)
+  if (!state.skills || typeof state.skills !== 'object') state.skills = defaultSkillState() as any
+
+  const gate = canBuySkill(state, args.id)
+  if (!gate.ok) return { ok: false, state: args.state, reason: gate.reason }
+
+  const defRank = getSkillRank(state, args.id)
+  state.skills.skillPoints = Math.max(0, Math.floor(state.skills.skillPoints) - 1)
+  state.skills.nodes[args.id] = defRank + 1
+  return { ok: true, state }
+}
+
+export function respecSkills(args: { state: GameState; cfg: GameConfig }): { ok: boolean; state: GameState; cost: number } {
+  const state: GameState = structuredClone(args.state)
+  if (!state.skills || typeof state.skills !== 'object') state.skills = defaultSkillState() as any
+
+  const spent = Object.values(state.skills.nodes ?? {}).reduce<number>(
+    (acc, v) => acc + (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0),
+    0,
+  )
+  const cost = skillsRespecCostPoints(state.skills.respecCount ?? 0)
+  if (state.points < cost) return { ok: false, state: args.state, cost }
+
+  state.points -= cost
+  state.skills.respecCount = Math.max(0, Math.floor(state.skills.respecCount ?? 0) + 1)
+  state.skills.skillPoints = Math.max(0, Math.floor(state.skills.skillPoints ?? 0) + spent)
+  state.skills.nodes = {}
+  state.skills.cooldowns = { secondBreathWaves: 0, emergencyKitWaves: 0 }
+  return { ok: true, state, cost }
 }
 
 export function tryModuleUnlock(args: { state: GameState; cfg: GameConfig; id: string }): { ok: boolean; state: GameState } {

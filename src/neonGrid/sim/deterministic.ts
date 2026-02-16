@@ -1,4 +1,5 @@
 import type { EnemyTypeDef, GameConfig, GameState, ModuleDef, WaveReport, WaveSnapshot } from '../types'
+import { aggregateSkillPassives } from '../skills/skills'
 
 export function dayIndexUTC(nowUTC: number): number {
   return Math.floor(nowUTC / 86400_000)
@@ -206,6 +207,7 @@ export function effectiveEnemySpeedMult(state: GameState, cfg: GameConfig, mods?
 
 export function effectiveCritParams(state: GameState, cfg: GameConfig, mods?: ModuleAggregate): { everyN: number; mult: number } {
   const m = mods ?? aggregateModules(state, cfg)
+  const skills = aggregateSkillPassives(state)
 
   const L = Math.max(1, Math.floor((state.towerUpgrades as any).critLevel ?? 1))
   const eff = Math.max(0, L - 1)
@@ -220,9 +222,19 @@ export function effectiveCritParams(state: GameState, cfg: GameConfig, mods?: Mo
 
   const everyN = Math.min(towerEveryN, m.critEveryN)
   const mult = Math.max(towerMult, m.critMult)
-  if (!Number.isFinite(everyN) || everyN <= 0) return { everyN: Number.POSITIVE_INFINITY, mult: 1 }
-  if (!(mult > 1.000001)) return { everyN: Number.POSITIVE_INFINITY, mult: 1 }
-  return { everyN, mult }
+
+  // Skills: add deterministic crit chance (Critical Primer) by converting chance into everyN.
+  const baseChance = Number.isFinite(everyN) && everyN !== Number.POSITIVE_INFINITY ? 1 / Math.max(2, everyN) : 0
+  const chance = clamp(baseChance + Math.max(0, skills.critChanceAdd), 0, 0.35)
+
+  // If skills provide crit chance but there is no crit mult yet, bootstrap to a conservative mult.
+  const multWithAdd = mult + Math.max(0, skills.critMultAdd)
+  const finalMult = chance > 0.000001 ? Math.max(multWithAdd, 1.5) : multWithAdd
+
+  if (!(finalMult > 1.000001)) return { everyN: Number.POSITIVE_INFINITY, mult: 1 }
+  if (!(chance > 0.000001)) return { everyN: Number.POSITIVE_INFINITY, mult: 1 }
+  const finalEveryN = clamp(Math.floor(1 / chance), 2, 10_000)
+  return { everyN: finalEveryN, mult: finalMult }
 }
 
 export function critAverageDamageMult(state: GameState, cfg: GameConfig, mods?: ModuleAggregate): number {
@@ -250,24 +262,27 @@ export function towerEscapeDamageMult(state: GameState, cfg: GameConfig): number
   const per = cfg.tower.upgrades.fortifyPerLevel
   const min = cfg.tower.upgrades.fortifyMinMult
   const raw = 1 - per * (L - 1)
-  return clamp(raw, min, 1)
+  const skills = aggregateSkillPassives(state)
+  return clamp(clamp(raw, min, 1) * skills.escapeDamageTakenMult, 0, 10)
 }
 
 export function towerRepairPctPerSec(state: GameState, cfg: GameConfig): number {
   const L = Math.max(1, Math.floor((state.towerUpgrades as any).repairLevel ?? 1))
   const per = cfg.tower.upgrades.repairPctPerSecPerLevel
   const cap = cfg.tower.upgrades.repairMaxPctPerSec
-  return clamp(per * (L - 1), 0, cap)
+  const skills = aggregateSkillPassives(state)
+  return clamp(per * (L - 1) * Math.max(0, skills.repairPctMult), 0, cap)
 }
 
 export function calcDPS(state: GameState, cfg: GameConfig): number {
   const mods = aggregateModules(state, cfg)
+  const skills = aggregateSkillPassives(state)
   const critAvg = critAverageDamageMult(state, cfg, mods)
   const dmg =
-    (baseDmg(state.towerUpgrades.damageLevel, cfg) * mods.dmgMult + mods.dmgFlat) *
+    (baseDmg(state.towerUpgrades.damageLevel, cfg) * mods.dmgMult * skills.dmgMult + mods.dmgFlat) *
     critAvg *
     calcPrestigeMult(state.prestigePoints, cfg)
-  const rate = fireRate(state.towerUpgrades.fireRateLevel, cfg) * (1 + mods.fireRateBonus)
+  const rate = fireRate(state.towerUpgrades.fireRateLevel, cfg) * (1 + mods.fireRateBonus + skills.fireRateBonus)
   return Math.max(0, dmg * rate)
 }
 
@@ -465,12 +480,13 @@ export function calcWaveReport(args: {
   const N = Math.max(1, snapshot.spawnCount)
   const killRatio = clamp(killed / N, 0, 1)
   const mods = aggregateModules(state, cfg)
+  const skills = aggregateSkillPassives(state)
   const { penaltyFactor, deficit } = calcPenaltyFactor(killRatio, snapshot.threshold, cfg, mods)
 
   const baseGold = calcBaseGold(snapshot.wave, snapshot.totalEHP, cfg)
-  const rewardGold = baseGold * penaltyFactor * mods.goldMult * towerGoldMult(state, cfg)
+  const rewardGold = baseGold * penaltyFactor * mods.goldMult * towerGoldMult(state, cfg) * skills.rewardGoldMult
   const basePoints = calcPointsReward(snapshot.wave, cfg)
-  const rewardPoints = Math.max(0, Math.floor(basePoints * penaltyFactor * mods.pointsMult))
+  const rewardPoints = Math.max(0, Math.floor(basePoints * penaltyFactor * mods.pointsMult * skills.rewardPointsMult))
 
   const baseDamageFromEscapes = cfg.progression.enableEscapeDamage
     ? escaped * cfg.progression.escapeDamage * (1 + cfg.progression.deficitBoost * deficit)

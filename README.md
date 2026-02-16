@@ -30,7 +30,9 @@ The game stores progress in your browser via encrypted `localStorage`.
 
 ## Docs
 
+- Döküman index: [docs/index.md](docs/index.md)
 - Tasarım + matematik + UI + mimari: [docs/design-spec-tr.md](docs/design-spec-tr.md)
+- Skills sistemi: [docs/skills-tr.md](docs/skills-tr.md)
 - Özgün modüller listesi: [docs/modules-40.md](docs/modules-40.md)
 
 ## Code map

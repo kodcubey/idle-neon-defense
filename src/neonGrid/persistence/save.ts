@@ -1,5 +1,6 @@
 import type { GameConfig, GameState, Settings, Stats } from '../types'
 import { exportEncryptedSaveString, importEncryptedSaveFile } from './encryptedSaveFile'
+import { defaultSkillState } from '../skills/skills'
 
 const LOCAL_SAVE_KEY = 'neon-grid:local-save:v1'
 
@@ -85,6 +86,8 @@ export function createNewState(config: GameConfig, nowUTC: number): GameState {
     prestigePoints: 0,
     settings: defaultSettings(),
     stats: defaultStats(),
+
+    skills: defaultSkillState(),
   }
 }
 
@@ -198,6 +201,30 @@ export function rehydrateImportedState(config: GameConfig, input: GameState, now
 
   // Paladyum is integer-only now; carry is deprecated.
   ;(merged as any).paladyumCarry = 0
+
+  // Skills: ensure object + sanitize.
+  if (!(merged as any).skills || typeof (merged as any).skills !== 'object') (merged as any).skills = defaultSkillState()
+  const baseSkills = defaultSkillState()
+  const s = (merged as any).skills as any
+  s.level = typeof s.level === 'number' && Number.isFinite(s.level) ? Math.max(0, Math.floor(s.level)) : baseSkills.level
+  s.xp = typeof s.xp === 'number' && Number.isFinite(s.xp) ? Math.max(0, Math.floor(s.xp)) : baseSkills.xp
+  s.skillPoints = typeof s.skillPoints === 'number' && Number.isFinite(s.skillPoints) ? Math.max(0, Math.floor(s.skillPoints)) : baseSkills.skillPoints
+  s.respecCount = typeof s.respecCount === 'number' && Number.isFinite(s.respecCount) ? Math.max(0, Math.floor(s.respecCount)) : baseSkills.respecCount
+  if (!s.nodes || typeof s.nodes !== 'object') s.nodes = {}
+  for (const [k, v] of Object.entries(s.nodes as any)) {
+    const n = typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0
+    ;(s.nodes as any)[k] = n
+  }
+  if (!s.cooldowns || typeof s.cooldowns !== 'object') s.cooldowns = { ...baseSkills.cooldowns }
+  s.cooldowns.secondBreathWaves =
+    typeof s.cooldowns.secondBreathWaves === 'number' && Number.isFinite(s.cooldowns.secondBreathWaves)
+      ? Math.max(0, Math.floor(s.cooldowns.secondBreathWaves))
+      : 0
+  s.cooldowns.emergencyKitWaves =
+    typeof s.cooldowns.emergencyKitWaves === 'number' && Number.isFinite(s.cooldowns.emergencyKitWaves)
+      ? Math.max(0, Math.floor(s.cooldowns.emergencyKitWaves))
+      : 0
+
   return merged
 }
 
@@ -226,6 +253,12 @@ export function buildSaveSnapshot(config: GameConfig, state: GameState, nowUTC: 
     prestigePoints: typeof state.prestigePoints === 'number' && Number.isFinite(state.prestigePoints) ? Math.max(0, Math.floor(state.prestigePoints)) : 0,
     settings: { ...state.settings },
     stats: { ...state.stats },
+
+    skills: {
+      ...(state.skills as any),
+      nodes: { ...(state.skills?.nodes as any) },
+      cooldowns: { ...(state.skills?.cooldowns as any) },
+    },
 
   }
 }

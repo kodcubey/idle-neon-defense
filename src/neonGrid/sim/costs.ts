@@ -50,6 +50,15 @@ export function moduleUpgradeCostPoints(level: number, cfg: GameConfig): number 
   return moduleUpgradeCostGold(level, cfg)
 }
 
+// Skills respec cost (Paladyum). Grows each time you respec.
+export function skillsRespecCostPoints(respecCount: number): number {
+  const n = Math.max(0, Math.floor(respecCount))
+  const base = 40
+  const growth = 1.65
+  const raw = base * Math.pow(growth, n)
+  return Math.max(1, Math.ceil(raw))
+}
+
 export function sumGeometric(a1: number, r: number, n: number): number {
   if (n <= 0) return 0
   if (r === 1) return a1 * n

@@ -1,8 +1,9 @@
-# NEON GRID — Özgün Modüller (40+)
+# NEON GRID — Özgün Modül İsimleri (40)
 
 RNG çağrışımı olmaması için **rarity yok**. Her modül: ad + kategori + ikon konsepti + deterministik etki tipi.
 
 Aşağıdaki liste, oyunun temasına özgün ve kopyasız isim/ikon konsepti üretmek için tasarlanmıştır.
+Sistem data‑driven olduğu için modül sayısı ve etkileri genişletilebilir.
 
 ## OFFENSE
 
@@ -60,4 +61,4 @@ Aşağıdaki liste, oyunun temasına özgün ve kopyasız isim/ikon konsepti ür
 46) Arşiv Modu — ikon: arşiv kutusu — goldMult
 47) Denetim Kaydı — ikon: check — goldMult
 
-Not: Modül sayısı 40+’tır; veri-tabanlıdır ve her etki deterministik katsayılarla ifade edilir.
+Not: Bu doküman “isim/ikon konsepti havuzu”dur; oyun dengesi için sayısal değerler config ve kod tarafında deterministik katsayılarla ifade edilir.

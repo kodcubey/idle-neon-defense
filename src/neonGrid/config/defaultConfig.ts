@@ -93,6 +93,15 @@ export const defaultConfig: GameConfig = {
     offlineFactor: 0.6,
     offlineKillK0: 0.22,
     offlineKillK1: 0.75,
+    
+    // Skills
+    // XP per wave scales with a controlled wave multiplier:
+    //   mult = 1 + (k*(w-1)) / (1 + s*(w-1))
+    skills: {
+      baseXP: 22,
+      waveXpK: 0.165,
+      waveXpS: 0.1,
+    },
   },
 
   tower: {

@@ -190,6 +190,13 @@ export type GameConfig = {
     offlineFactor: number
     offlineKillK0: number
     offlineKillK1: number
+
+    // Skills (XP progression)
+    skills?: {
+      baseXP: number
+      waveXpK: number
+      waveXpS: number
+    }
   }
 
   tower: {
@@ -268,6 +275,18 @@ export type Stats = {
   paladyumDroppedThisRun: number
 }
 
+export type SkillsState = {
+  level: number
+  xp: number
+  skillPoints: number
+  nodes: Partial<Record<string, number>>
+  respecCount: number
+  cooldowns: {
+    secondBreathWaves: number
+    emergencyKitWaves: number
+  }
+}
+
 export type GameState = {
   version: number
   lastSaveTimestampUTC: number
@@ -322,6 +341,9 @@ export type GameState = {
   prestigePoints: number
   settings: Settings
   stats: Stats
+
+  // Skills progression (persistent).
+  skills: SkillsState
 }
 
 export type WaveSnapshot = {
@@ -351,6 +373,12 @@ export type WaveReport = {
   baseDamageFromEscapes: number
   dpsSnap: number
   totalEHP: number
+
+  // Skills XP (optional; computed at runtime at wave end).
+  xpGain?: number
+  xpMultiplier?: number
+  levelBefore?: number
+  levelAfter?: number
 }
 
 export type OfflineProgressResult = {

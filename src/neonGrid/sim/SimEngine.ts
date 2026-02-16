@@ -17,6 +17,8 @@ import {
   towerRepairPctPerSec,
   towerRange,
 } from './deterministic'
+import { calcBaseHPMax } from './actions'
+import { aggregateSkillPassives, calcWaveXpGain, getSkillRank, xpToNext } from '../skills/skills'
 import type { Vec2 } from './path'
 
 export type EnemyEntity = {
@@ -57,6 +59,16 @@ export type SimPublic = {
   paused: boolean
   enemies: ReadonlyArray<EnemyEntity>
   projectiles: ReadonlyArray<ProjectileEntity>
+  skillsRuntime?: {
+    comboStacks: number
+    adrenalActive: boolean
+    tacticalActive: boolean
+    guardChargeReady: boolean
+    aegisCharge: number
+    spawnHintEdge: 'N' | 'E' | 'S' | 'W' | null
+    lastProc?: 'GUARD_BLOCK' | 'AEGIS_BLOCK' | 'SECOND_BREATH' | 'EMERGENCY_KIT' | 'RECOVERY_PULSE'
+    lastProcUntilSec?: number
+  }
   arena: {
     center: Vec2
     bounds: { left: number; top: number; right: number; bottom: number }
@@ -125,6 +137,18 @@ export class SimEngine {
   private invulnRemainingSec = 0
   private invulnCooldownRemainingSec = 0
 
+  // --- Skills runtime (deterministic; no RNG) ---
+  private comboStacks = 0
+  private adrenalRemainingSec = 0
+  private tacticalRemainingSec = 0
+  private wavePlannerHintRemainingSec = 0
+  private spawnHintEdge: 'N' | 'E' | 'S' | 'W' | null = null
+  private guardRechargeRemainingSec = 0
+  private aegisCharge = 0
+  private emergencyKitUsedThisWave = false
+  private lastProc: 'GUARD_BLOCK' | 'AEGIS_BLOCK' | 'SECOND_BREATH' | 'EMERGENCY_KIT' | 'RECOVERY_PULSE' | undefined = undefined
+  private lastProcUntilSec: number | undefined = undefined
+
   private arena: {
     center: Vec2
     bounds: { left: number; top: number; right: number; bottom: number }
@@ -147,21 +171,86 @@ export class SimEngine {
     this.waveMods = aggregateModules(this._state, this.cfg)
     this.snapshot = calcWaveSnapshot(this._state, this.cfg)
     this.buildSpawnPlan()
+
+    // Ensure wave-start skills apply on the initial wave.
+    this.onWaveStart(false)
+  }
+
+  private onWaveStart(decrementWaveCooldowns: boolean) {
+    if (!this._state.skills) return
+
+    if (decrementWaveCooldowns) {
+      // Decrement wave-based cooldowns at the start of each *new* wave.
+      this._state.skills.cooldowns.secondBreathWaves = Math.max(0, Math.floor(this._state.skills.cooldowns.secondBreathWaves ?? 0) - 1)
+      this._state.skills.cooldowns.emergencyKitWaves = Math.max(0, Math.floor(this._state.skills.cooldowns.emergencyKitWaves ?? 0) - 1)
+    }
+
+    this.comboStacks = 0
+    this.emergencyKitUsedThisWave = false
+    this.lastProc = undefined
+    this.lastProcUntilSec = undefined
+
+    // Wave-start abilities.
+    if (getSkillRank(this._state, 'AT_ADRENAL_BURST') > 0) this.adrenalRemainingSec = 8
+    else this.adrenalRemainingSec = 0
+
+    if (getSkillRank(this._state, 'UT_TACTICAL_RELAY') > 0) this.tacticalRemainingSec = 6
+    else this.tacticalRemainingSec = 0
+
+    if (getSkillRank(this._state, 'UT_WAVE_PLANNER') > 0) {
+      const adv = getSkillRank(this._state, 'UT_ADVANCED_PLANNER')
+      this.wavePlannerHintRemainingSec = 2 + (adv > 0 ? 2 : 0)
+
+      const p = this.calcSpawnPoint(this.snapshot.wave, 1)
+      const eps = 1e-3
+      const { left, top, right, bottom } = this.arena.bounds
+      if (Math.abs(p.y - top) <= eps) this.spawnHintEdge = 'N'
+      else if (Math.abs(p.x - right) <= eps) this.spawnHintEdge = 'E'
+      else if (Math.abs(p.y - bottom) <= eps) this.spawnHintEdge = 'S'
+      else if (Math.abs(p.x - left) <= eps) this.spawnHintEdge = 'W'
+      else this.spawnHintEdge = null
+    } else {
+      this.wavePlannerHintRemainingSec = 0
+      this.spawnHintEdge = null
+    }
+
+    const aegis = getSkillRank(this._state, 'DF_AEGIS_PROTOCOL')
+    const reserve = getSkillRank(this._state, 'DF_AEGIS_RESERVE')
+    this.aegisCharge = aegis > 0 ? 1 + (reserve > 0 ? 1 : 0) : 0
+
+    if (getSkillRank(this._state, 'DF_GUARD_STEP') > 0) {
+      // Start each wave with a ready charge.
+      this.guardRechargeRemainingSec = 0
+    }
+
+    // Wave Barrier: small wave-start heal.
+    if (getSkillRank(this._state, 'DF_WAVE_BARRIER') > 0) {
+      const maxHP = calcBaseHPMax(this._state, this.cfg)
+      this._state.baseHP = clamp(this._state.baseHP + 0.03 * maxHP, 0, maxHP)
+    }
   }
 
   getPublic(): SimPublic {
     const mods = aggregateModules(this._state, this.cfg)
+    const skills = aggregateSkillPassives(this._state)
 
     const damagePerShot =
-      (baseDmg(this._state.towerUpgrades.damageLevel, this.cfg) * mods.dmgMult + mods.dmgFlat) *
+      ((baseDmg(this._state.towerUpgrades.damageLevel, this.cfg) * mods.dmgMult + mods.dmgFlat) * skills.dmgMult) *
       (1 + 0) *
       (1 + 0) *
       (1 + 0) *
       (1 + 0)
 
-    const fr = fireRate(this._state.towerUpgrades.fireRateLevel, this.cfg) * (1 + mods.fireRateBonus)
-    const range = towerRange(this._state.towerUpgrades.rangeLevel, this.cfg) + mods.rangeBonus
-    const armorPierce = clamp(mods.armorPierce + towerArmorPierceBonus(this._state, this.cfg), 0, 0.9)
+    const adrenalMult = this.adrenalRemainingSec > 0 ? 1.1 : 1
+    const fr = fireRate(this._state.towerUpgrades.fireRateLevel, this.cfg) * (1 + mods.fireRateBonus) * (1 + skills.fireRateBonus) * adrenalMult
+
+    const tacticalMult = this.tacticalRemainingSec > 0 ? 1.1 : 1
+    const range = (towerRange(this._state.towerUpgrades.rangeLevel, this.cfg) + mods.rangeBonus) * tacticalMult * skills.rangeMult
+    const armorPierce = clamp(mods.armorPierce + towerArmorPierceBonus(this._state, this.cfg) + skills.armorPierceBonus, 0, 0.9)
+
+    const guardRank = getSkillRank(this._state, 'DF_GUARD_STEP')
+    const wavePlannerRank = getSkillRank(this._state, 'UT_WAVE_PLANNER')
+    const procAlive = typeof this.lastProcUntilSec === 'number' ? this.waveTimeSec <= this.lastProcUntilSec : false
 
     return {
       state: this._state,
@@ -174,6 +263,16 @@ export class SimEngine {
       paused: this.paused,
       enemies: this.enemies,
       projectiles: this.projectiles,
+      skillsRuntime: {
+        comboStacks: this.comboStacks,
+        adrenalActive: this.adrenalRemainingSec > 0,
+        tacticalActive: this.tacticalRemainingSec > 0,
+        guardChargeReady: guardRank > 0 && this.guardRechargeRemainingSec <= 0,
+        aegisCharge: this.aegisCharge,
+        spawnHintEdge: wavePlannerRank > 0 && this.wavePlannerHintRemainingSec > 0 ? this.spawnHintEdge : null,
+        lastProc: procAlive ? this.lastProc : undefined,
+        lastProcUntilSec: procAlive ? this.lastProcUntilSec : undefined,
+      },
       arena: {
         center: this.arena.center,
         bounds: this.arena.bounds,
@@ -215,6 +314,7 @@ export class SimEngine {
     this.snapshot = calcWaveSnapshot(this._state, this.cfg)
     this.resetWaveRuntime()
     this.buildSpawnPlan()
+    this.onWaveStart(false)
     this.awaitingNextWave = false
     this.cb.onStateChanged(this._state)
   }
@@ -290,6 +390,8 @@ export class SimEngine {
     this.resetWaveRuntime()
     this.buildSpawnPlan()
 
+    this.onWaveStart(true)
+
     this.paused = false
     this.cb.onStateChanged(this._state)
   }
@@ -307,12 +409,20 @@ export class SimEngine {
     this.invulnRemainingSec = Math.max(0, this.invulnRemainingSec - scaled)
     this.invulnCooldownRemainingSec = Math.max(0, this.invulnCooldownRemainingSec - scaled)
 
+    // Skills runtime timers (deterministic; time-based).
+    this.adrenalRemainingSec = Math.max(0, this.adrenalRemainingSec - scaled)
+    this.tacticalRemainingSec = Math.max(0, this.tacticalRemainingSec - scaled)
+    this.wavePlannerHintRemainingSec = Math.max(0, this.wavePlannerHintRemainingSec - scaled)
+    this.guardRechargeRemainingSec = Math.max(0, this.guardRechargeRemainingSec - scaled)
+
     this.waveTimeSec += scaled
     this._state.stats.totalTimeSec += scaled
 
     // Defense: deterministic self-repair (regen) based on max HP.
     // Applied continuously while unpaused.
     this.applyTowerRepair(scaled)
+
+    this.maybeTriggerEmergencyKit()
 
     this.maybeTriggerInvulnerability()
 
@@ -345,6 +455,17 @@ export class SimEngine {
     this.towerCooldown = 0
     this.invulnRemainingSec = 0
     this.invulnCooldownRemainingSec = 0
+
+    this.comboStacks = 0
+    this.adrenalRemainingSec = 0
+    this.tacticalRemainingSec = 0
+    this.wavePlannerHintRemainingSec = 0
+    this.spawnHintEdge = null
+    this.guardRechargeRemainingSec = 0
+    this.aegisCharge = 0
+    this.emergencyKitUsedThisWave = false
+    this.lastProc = undefined
+    this.lastProcUntilSec = undefined
   }
 
   private applyEscapeDamageNow(count: number) {
@@ -356,12 +477,62 @@ export class SimEngine {
     const killRatioNow = clamp(this.killed / N, 0, 1)
     const { deficit } = calcPenaltyFactor(killRatioNow, this.snapshot.threshold, this.cfg)
 
-    const perEscape = this.cfg.progression.escapeDamage * (1 + this.cfg.progression.deficitBoost * deficit)
+    const stabilityRank = getSkillRank(this._state, 'DF_STABILITY')
+    const deficitBoostMult = clamp(1 - 0.15 * stabilityRank, 0, 1)
+    const perEscape = this.cfg.progression.escapeDamage * (1 + this.cfg.progression.deficitBoost * deficit * deficitBoostMult)
     const afterFortify = perEscape * towerEscapeDamageMult(this._state, this.cfg)
-    const dmg = Math.max(0, afterFortify * count)
+    let dmg = Math.max(0, afterFortify * count)
+
+    // Aegis Protocol: blocks escape hits (first full, second partial if Aegis Reserve).
+    if (getSkillRank(this._state, 'DF_AEGIS_PROTOCOL') > 0 && this.aegisCharge > 0) {
+      const reserve = getSkillRank(this._state, 'DF_AEGIS_RESERVE') > 0
+      const was = this.aegisCharge
+      this.aegisCharge = Math.max(0, this.aegisCharge - 1)
+      this.lastProc = 'AEGIS_BLOCK'
+      this.lastProcUntilSec = this.waveTimeSec + 1.25
+
+      // If no reserve: always full block. With reserve: first (was=2) full block, second (was=1) partial.
+      if (!reserve || was >= 2) return
+      dmg *= 0.4
+    }
+
+    // Guard Step: periodic single-hit shield.
+    if (getSkillRank(this._state, 'DF_GUARD_STEP') > 0 && this.guardRechargeRemainingSec <= 0) {
+      dmg *= 0.8
+      const cdMult = aggregateSkillPassives(this._state).cooldownMult
+      this.guardRechargeRemainingSec = 10 * cdMult
+      this.lastProc = 'GUARD_BLOCK'
+      this.lastProcUntilSec = this.waveTimeSec + 1.25
+    }
 
     this.escapeDamageAppliedThisWave += dmg
     this._state.baseHP = Math.max(0, this._state.baseHP - dmg)
+
+    // Shock Absorbers: extra reduction when below 50% HP.
+    if (this._state.baseHP > 0 && getSkillRank(this._state, 'DF_SHOCK_ABSORBERS') > 0) {
+      const rank = getSkillRank(this._state, 'DF_SHOCK_ABSORBERS')
+      const maxHP = calcBaseHPMax(this._state, this.cfg)
+      if (maxHP > 0 && this._state.baseHP / maxHP <= 0.5) {
+        // Apply as a refund-style heal to keep escape damage accounting consistent.
+        const refund = dmg * clamp(0.05 * rank, 0, 0.2)
+        this._state.baseHP = clamp(this._state.baseHP + refund, 0, maxHP)
+      }
+    }
+
+    // Second Breath: once below 15% HP, heal and start wave cooldown.
+    if (this._state.baseHP > 0 && getSkillRank(this._state, 'DF_SECOND_BREATH') > 0) {
+      const cd = Math.max(0, Math.floor(this._state.skills?.cooldowns?.secondBreathWaves ?? 0))
+      if (cd <= 0) {
+        const maxHP = calcBaseHPMax(this._state, this.cfg)
+        if (maxHP > 0 && this._state.baseHP / maxHP <= 0.15) {
+          this._state.baseHP = clamp(this._state.baseHP + 0.1 * maxHP, 0, maxHP)
+          const cdMult = aggregateSkillPassives(this._state).cooldownMult
+          this._state.skills.cooldowns.secondBreathWaves = Math.max(1, Math.ceil(3 * cdMult))
+          this.lastProc = 'SECOND_BREATH'
+          this.lastProcUntilSec = this.waveTimeSec + 1.5
+        }
+      }
+    }
 
     if (this._state.baseHP <= 0) {
       const sum: RunSummary = {
@@ -472,8 +643,9 @@ export class SimEngine {
     const cd = 1 / fireRateNow
 
     const mods = aggregateModules(this._state, this.cfg)
+    const skills = aggregateSkillPassives(this._state)
     const baseShots = towerMultiShotCount(this._state, this.cfg)
-    const totalShots = Math.max(1, Math.floor(Math.max(baseShots, mods.shotCount)))
+    const totalShots = Math.max(1, Math.floor(Math.max(baseShots, mods.shotCount) + Math.max(0, skills.shotCountBonus)))
     const targets = this.pickTargets(pub, totalShots)
     if (targets.length === 0) return
 
@@ -521,6 +693,7 @@ export class SimEngine {
       const target = this.enemies.find((e) => e.id === p.targetEnemyId)
       if (!target || !target.alive) {
         p.alive = false
+        if (getSkillRank(this._state, 'AT_COMBO_MOMENTUM') > 0) this.comboStacks = 0
         continue
       }
 
@@ -539,6 +712,13 @@ export class SimEngine {
           this._state.stats.totalKills++
         }
         p.alive = false
+
+        // Combo Momentum: increment stacks on hits.
+        const comboRank = getSkillRank(this._state, 'AT_COMBO_MOMENTUM')
+        if (comboRank > 0) {
+          const maxStacks = clamp(2 + comboRank, 0, 5)
+          this.comboStacks = Math.min(maxStacks, this.comboStacks + 1)
+        }
         continue
       }
 
@@ -580,7 +760,23 @@ export class SimEngine {
 
     // Deterministic reduction: armor reduces flat portion.
     const armorEffective = e.armor * (1 - armorPierce)
-    const raw = pub.tower.damagePerShot * Math.max(0.1, p.damageMult)
+    let raw = pub.tower.damagePerShot * Math.max(0.1, p.damageMult)
+
+    // Execution Window: +12% vs enemies below 20% HP.
+    if (getSkillRank(this._state, 'AT_EXECUTION_WINDOW') > 0 && e.maxHP > 0 && e.hp / e.maxHP <= 0.2) {
+      raw *= 1.12
+    }
+
+    // Marked Targets: opening-volley bonus vs high-HP enemies.
+    if (getSkillRank(this._state, 'AT_MARKED_TARGETS') > 0 && e.maxHP > 0 && e.hp / e.maxHP >= 0.8) {
+      raw *= 1.06
+    }
+
+    // Combo Momentum: damage scales with current stacks; misses reset elsewhere.
+    if (getSkillRank(this._state, 'AT_COMBO_MOMENTUM') > 0) {
+      raw *= 1 + 0.01 * clamp(this.comboStacks, 0, 5)
+    }
+
     return Math.max(1, raw - armorEffective * 10)
   }
 
@@ -588,15 +784,34 @@ export class SimEngine {
     const pct = towerRepairPctPerSec(this._state, this.cfg)
     if (pct <= 0) return
 
-    const mods = aggregateModules(this._state, this.cfg)
-    const baseHPLevel = Math.max(1, Math.floor(this._state.towerUpgrades.baseHPLevel))
-    const base = this.cfg.tower.baseHP0 * Math.pow(1 + this.cfg.tower.baseHPGrowth, baseHPLevel - 1)
-    const maxHP = Math.max(1, (base + mods.baseHPBonus) * mods.baseHPMult)
+    const maxHP = calcBaseHPMax(this._state, this.cfg)
 
     // Repair heals a fraction of *missing* HP per second. This avoids instantly refilling
     // to full when only slightly damaged, while still allowing meaningful recovery.
     const missing = Math.max(0, maxHP - this._state.baseHP)
     this._state.baseHP = clamp(this._state.baseHP + missing * pct * dtSec, 0, maxHP)
+  }
+
+  private maybeTriggerEmergencyKit() {
+    if (!this._state.skills) return
+    if (this.emergencyKitUsedThisWave) return
+    if (getSkillRank(this._state, 'UT_EMERGENCY_KIT') <= 0) return
+    const cd = Math.max(0, Math.floor(this._state.skills.cooldowns.emergencyKitWaves ?? 0))
+    if (cd > 0) return
+
+    const T = this.cfg.sim.waveDurationSec
+    if (!(this.waveTimeSec >= T * 0.5)) return
+
+    const maxHP = calcBaseHPMax(this._state, this.cfg)
+    if (maxHP <= 0) return
+    if (this._state.baseHP >= maxHP) return
+
+    this._state.baseHP = clamp(this._state.baseHP + 0.06 * maxHP, 0, maxHP)
+    const cdMult = aggregateSkillPassives(this._state).cooldownMult
+    this._state.skills.cooldowns.emergencyKitWaves = Math.max(1, Math.ceil(2 * cdMult))
+    this.emergencyKitUsedThisWave = true
+    this.lastProc = 'EMERGENCY_KIT'
+    this.lastProcUntilSec = this.waveTimeSec + 1.5
   }
 
   private maybeTriggerInvulnerability() {
@@ -626,11 +841,44 @@ export class SimEngine {
     // Escape damage is applied instantly on each escape; keep the report consistent.
     report.baseDamageFromEscapes = this.escapeDamageAppliedThisWave
 
+    // Skills: wave-end XP progression.
+    if (this._state.skills) {
+      const levelBefore = Math.max(0, Math.floor(this._state.skills.level ?? 0))
+      const { mult, gain } = calcWaveXpGain(this._state.wave, this.cfg)
+      const skills = aggregateSkillPassives(this._state)
+      const finalGain = Math.max(0, Math.floor(gain * Math.max(0, skills.xpGainMult)))
+      report.xpGain = finalGain
+      report.xpMultiplier = mult
+      report.levelBefore = levelBefore
+
+      this._state.skills.xp = Math.max(0, Math.floor(this._state.skills.xp ?? 0) + finalGain)
+      let lvl = levelBefore
+      let safety = 0
+      while (this._state.skills.xp >= xpToNext(lvl) && safety++ < 500) {
+        this._state.skills.xp -= xpToNext(lvl)
+        lvl++
+        this._state.skills.skillPoints = Math.max(0, Math.floor(this._state.skills.skillPoints ?? 0) + 1)
+      }
+      this._state.skills.level = lvl
+      report.levelAfter = lvl
+    }
+
     this._state.gold += report.rewardGold
 
     // Paladyum (points) is awarded deterministically at wave end.
     this._state.points += report.rewardPoints
     this._state.stats.paladyumDroppedThisRun = Math.max(0, Math.floor((this._state.stats.paladyumDroppedThisRun ?? 0) + report.rewardPoints))
+
+    // Recovery Pulse: heal at wave end based on max HP.
+    if (this._state.skills) {
+      const r = getSkillRank(this._state, 'DF_RECOVERY_PULSE')
+      if (r > 0) {
+        const maxHP = calcBaseHPMax(this._state, this.cfg)
+        this._state.baseHP = clamp(this._state.baseHP + maxHP * (0.02 * r), 0, maxHP)
+        this.lastProc = 'RECOVERY_PULSE'
+        this.lastProcUntilSec = this.waveTimeSec + 2
+      }
+    }
 
     if (this._state.baseHP <= 0) {
       const sum: RunSummary = {

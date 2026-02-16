@@ -24,7 +24,18 @@ import {
   towerEnemySpeedMult,
 } from '../sim/deterministic'
 import { calcBaseHPMax } from '../sim/actions'
-import { metaUpgradeCostPoints, moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, upgradeCost, upgradeMaxLevel } from '../sim/costs'
+import { metaUpgradeCostPoints, moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, skillsRespecCostPoints, upgradeCost, upgradeMaxLevel } from '../sim/costs'
+import {
+  SKILLS,
+  TIER1_MAX_UNLOCKS_PER_BRANCH,
+  aggregateSkillPassives,
+  branchSpentCount,
+  branchTier1UnlockedCount,
+  tierRequirementCount,
+  xpToNext,
+  type SkillBranch,
+  type SkillId,
+} from '../skills/skills'
 
 export type UIScreen = 'boot' | 'menu' | 'hud' | 'modules' | 'settings' | 'stats' | 'offline'
 
@@ -40,6 +51,11 @@ export function createUIStateMachine(args: UIArgs) {
   let resetRequested = false
 
   let upgradesTab: 'attack' | 'defense' | 'utility' = 'attack'
+  let skillsTab: SkillBranch = 'attack'
+
+  let toastIdSeq = 1
+  const activeToasts: Array<{ id: number; msg: string; kind: 'good' | 'warn' }> = []
+  const toastLayer = el('div', 'ng-toasts')
 
   // In dev/HMR or accidental re-init, multiple UI layers can stack and swallow clicks.
   // Reset the UI root so only one active layer exists.
@@ -158,6 +174,28 @@ export function createUIStateMachine(args: UIArgs) {
   const bottom = el('div')
 
   layer.append(top, center, bottom)
+  layer.appendChild(toastLayer)
+
+  function renderToasts() {
+    clear(toastLayer)
+    if (activeToasts.length === 0) return
+    for (const t of activeToasts) {
+      const item = el('div', 'ng-toast ' + (t.kind === 'warn' ? 'warn' : 'good'))
+      item.textContent = t.msg
+      toastLayer.appendChild(item)
+    }
+  }
+
+  function pushToast(msg: string, kind: 'good' | 'warn' = 'good') {
+    const id = toastIdSeq++
+    activeToasts.push({ id, msg, kind })
+    renderToasts()
+    window.setTimeout(() => {
+      const idx = activeToasts.findIndex((t) => t.id === id)
+      if (idx >= 0) activeToasts.splice(idx, 1)
+      renderToasts()
+    }, 2400)
+  }
 
   function setFreshLocalSnapshot(forceMenuPause: boolean) {
     if (!game) return
@@ -262,20 +300,21 @@ export function createUIStateMachine(args: UIArgs) {
 
   function computeTowerUIStats(state: GameState) {
     const mods = aggregateModules(state, config)
+    const skills = aggregateSkillPassives(state)
 
     const baseDamage = baseDmg(state.towerUpgrades.damageLevel, config)
-    const damagePerShot = Math.max(0, baseDamage * mods.dmgMult + mods.dmgFlat)
+    const damagePerShot = Math.max(0, baseDamage * mods.dmgMult * skills.dmgMult + mods.dmgFlat)
     const crit = effectiveCritParams(state, config, mods)
     const critAvg = critAverageDamageMult(state, config, mods)
 
     const fireRateBase = fireRate(state.towerUpgrades.fireRateLevel, config)
-    const fireRateFinal = Math.max(0.1, fireRateBase * (1 + mods.fireRateBonus))
+    const fireRateFinal = Math.max(0.1, fireRateBase * (1 + mods.fireRateBonus + skills.fireRateBonus))
 
     const rangeBase = towerRange(state.towerUpgrades.rangeLevel, config)
     const rangeFinal = Math.max(0, rangeBase + mods.rangeBonus)
 
     const armorPierceBonus = towerArmorPierceBonus(state, config)
-    const armorPierceFinal = clamp(mods.armorPierce + armorPierceBonus, 0, 0.9)
+    const armorPierceFinal = clamp(mods.armorPierce + armorPierceBonus + skills.armorPierceBonus, 0, 0.9)
 
     const baseTargets = towerMultiShotCount(state, config)
     const targetsFinal = Math.max(1, Math.floor(Math.max(baseTargets, mods.shotCount)))
@@ -294,6 +333,7 @@ export function createUIStateMachine(args: UIArgs) {
 
     return {
       mods,
+      skills,
       dps,
 
       baseDamage,
@@ -373,6 +413,8 @@ export function createUIStateMachine(args: UIArgs) {
     if (screen === 'modules') renderModules()
     if (screen === 'settings') renderSettings()
     if (screen === 'stats') renderStats()
+
+    renderToasts()
   }
 
   function renderBoot() {
@@ -450,7 +492,10 @@ export function createUIStateMachine(args: UIArgs) {
     infoRow.style.gap = '12px'
     infoRow.style.flexWrap = 'wrap'
     infoRow.style.marginBottom = '14px'
-    infoRow.innerHTML = `<span>Paladyum: <span class="mono" style="color:var(--neon-lime)">${formatPaladyumInt(Math.max(0, Number((lastState as any)?.points ?? 0)))}</span></span><span>Deterministic \u2022 No RNG</span>`
+    const menuLvl = Math.max(0, Math.floor((lastState as any)?.skills?.level ?? 0))
+    const menuXp = Math.max(0, Math.floor((lastState as any)?.skills?.xp ?? 0))
+    const menuNextXp = xpToNext(menuLvl)
+    infoRow.innerHTML = `<span>Level: <span class="mono">${menuLvl}</span></span><span>XP: <span class="mono">${menuXp}/${menuNextXp}</span></span><span>Paladyum: <span class="mono" style="color:var(--neon-lime)">${formatPaladyumInt(Math.max(0, Number((lastState as any)?.points ?? 0)))}</span></span><span>Deterministic \u2022 No RNG</span>`
 
     const row = el('div', 'ng-menu-actions')
     row.style.marginTop = '0'
@@ -513,6 +558,14 @@ export function createUIStateMachine(args: UIArgs) {
       </svg>
     `
 
+    const iconSkills = `
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 3v18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M12 7c-4 0-7 2-8 5 1 3 4 5 8 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M12 7c4 0 7 2 8 5-1 3-4 5-8 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.55"/>
+      </svg>
+    `
+
     const iconInfo = `
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z" stroke="currentColor" stroke-width="2"/>
@@ -534,6 +587,22 @@ export function createUIStateMachine(args: UIArgs) {
       void (async () => {
         if (game) game.setPaused(true)
         await showModulesModal()
+      })()
+    }
+
+    const skills = menuBtn('Skills', iconSkills, 'magenta')
+    {
+      const sp = Math.max(0, Math.floor((lastState as any)?.skills?.skillPoints ?? 0))
+      if (sp > 0) {
+        const badge = el('span', 'ng-menu-badge')
+        badge.textContent = sp >= 100 ? '99+' : String(sp)
+        skills.appendChild(badge)
+      }
+    }
+    skills.onclick = () => {
+      void (async () => {
+        if (game) game.setPaused(true)
+        await showSkillsModal()
       })()
     }
 
@@ -567,7 +636,7 @@ export function createUIStateMachine(args: UIArgs) {
       void showMetaUpgradesModal()
     }
 
-    row.append(newRun, metaUpg, modules, tower, stats, settings, how)
+    row.append(newRun, metaUpg, modules, skills, tower, stats, settings, how)
 
     body.append(infoRow, row)
 
@@ -745,6 +814,191 @@ export function createUIStateMachine(args: UIArgs) {
     })
   }
 
+  function renderSkillsTabs(onChange: (b: SkillBranch) => void) {
+    const row = el('div', 'stack')
+    const mk = (label: string, key: SkillBranch) => {
+      const b = btn(label, 'btn')
+      b.classList.toggle('is-selected', skillsTab === key)
+      b.onclick = () => {
+        skillsTab = key
+        onChange(key)
+      }
+      return b
+    }
+    row.append(mk('Attack', 'attack'), mk('Defense', 'defense'), mk('Utility', 'utility'))
+    return row
+  }
+
+  async function showSkillsModal() {
+    if (!lastState || !game) return
+    const state = lastState
+    const g = game
+
+    const modal = el('div', 'panel ng-skills-modal')
+    modal.style.width = 'min(920px, calc(100vw - 20px))'
+    modal.style.pointerEvents = 'auto'
+
+    const overlay = mountModal(modal)
+
+    const h = el('div', 'panel-header')
+    const title = el('div')
+    title.textContent = 'Skills'
+    const close = btn('Close', 'btn')
+    close.onclick = () => {
+      overlay.remove()
+      render()
+    }
+    h.append(title, close)
+
+    const b = el('div', 'panel-body')
+    const topRow = el('div', 'ng-skills-top')
+
+    const lvl = Math.max(0, Math.floor(state.skills?.level ?? 0))
+    const xp = Math.max(0, Math.floor(state.skills?.xp ?? 0))
+    const sp = Math.max(0, Math.floor(state.skills?.skillPoints ?? 0))
+    const nextXP = xpToNext(lvl)
+    const bal = el('div', 'muted')
+    bal.innerHTML = `Level: <span class="mono">${lvl}</span> • XP: <span class="mono">${xp}/${nextXP}</span> • Skill Points: <span class="mono">${sp}</span> • Paladyum: <span class="mono">${formatPaladyumInt(state.points)}</span>`
+
+    const tabs = renderSkillsTabs(() => {
+      overlay.remove()
+      void showSkillsModal()
+    })
+    tabs.classList.add('ng-skills-tabs')
+
+    const respecCostNow = skillsRespecCostPoints(Math.max(0, Math.floor(state.skills?.respecCount ?? 0)))
+    const respecBtn = btn(`Respec (${formatPaladyumInt(respecCostNow)})`, 'btn')
+    respecBtn.onclick = () => {
+      const nextCost = skillsRespecCostPoints(Math.max(0, Math.floor(state.skills?.respecCount ?? 0)))
+      const ok = window.confirm(`Reset all skills for Paladyum?\nCost: ${formatPaladyumInt(nextCost)} (increases each time).`)
+      if (!ok) return
+      const r = g.respecSkills()
+      if (!r.ok) {
+        pushToast(`Not enough Paladyum. Respec cost: ${formatPaladyumInt(r.cost)}`, 'warn')
+        return
+      }
+      pushToast(`Skills reset (cost: ${formatPaladyumInt(r.cost)})`, 'good')
+      overlay.remove()
+      void showSkillsModal()
+    }
+
+    topRow.append(bal, tabs, respecBtn)
+    b.appendChild(topRow)
+
+    const branch = skillsTab
+    const spentInBranch = branchSpentCount(state, branch)
+    const tier1Unlocked = branchTier1UnlockedCount(state, branch)
+    const skillsById = new Map<string, (typeof SKILLS)[number]>()
+    for (const s of SKILLS) skillsById.set(s.id, s)
+    const info = el('div', 'muted')
+    info.style.marginTop = '8px'
+    info.textContent = `Branch progress: ${spentInBranch} skills • Tier unlocks at 2 / 4 / 6 skills in the same branch • Tier 1 cap: ${tier1Unlocked}/${TIER1_MAX_UNLOCKS_PER_BRANCH}.`
+    b.appendChild(info)
+
+    const grid = el('div', 'ng-skills-grid')
+    const branchSkills = SKILLS.filter((s) => s.branch === branch)
+    const tiers: Array<1 | 2 | 3 | 4> = [1, 2, 3, 4]
+    for (const tier of tiers) {
+      const section = el('div', 'ng-skill-tier')
+      const sh = el('div', 'ng-skill-tier-header')
+      const need = tierRequirementCount(tier)
+      const unlocked = spentInBranch >= need
+      sh.innerHTML = `Tier ${tier} <span class="muted" style="font-weight:600">${tier === 1 ? '(Start)' : unlocked ? '(Unlocked)' : `(Locked: ${need} skills required)`}</span>`
+      section.appendChild(sh)
+
+      const row = el('div', 'ng-skill-tier-row')
+      const list = branchSkills.filter((s) => s.tier === tier)
+      for (const def of list) {
+        const rankRaw = state.skills?.nodes?.[def.id]
+        const rank = typeof rankRaw === 'number' && Number.isFinite(rankRaw) ? Math.max(0, Math.floor(rankRaw)) : 0
+        const isMax = rank >= def.maxRank
+
+        const needTier = tierRequirementCount(def.tier)
+        const tierOk = spentInBranch >= needTier
+        const canSpend = sp > 0
+        const requires = (def as any).requires as undefined | Array<{ id: string; rank?: number }>
+        const unmet = (requires ?? []).filter((r) => {
+          const need = Math.max(1, Math.floor(r.rank ?? 1))
+          const haveRaw = state.skills?.nodes?.[r.id as any]
+          const have = typeof haveRaw === 'number' && Number.isFinite(haveRaw) ? Math.max(0, Math.floor(haveRaw)) : 0
+          return have < need
+        })
+        const prereqOk = unmet.length === 0
+        const t1CapOk = def.tier !== 1 || rank > 0 || tier1Unlocked < TIER1_MAX_UNLOCKS_PER_BRANCH
+        const locked = !tierOk || !prereqOk || !t1CapOk
+
+        const card = el('div', 'ng-skill-node' + (rank > 0 ? ' active' : '') + (locked ? ' locked' : '') + (isMax ? ' maxed' : ''))
+        const head = el('div', 'ng-skill-node-head')
+        const ic = el('div', 'ng-skill-icon')
+        ic.innerHTML = def.icon
+        const nm = el('div', 'ng-skill-name')
+        nm.textContent = def.name
+        head.append(ic, nm)
+
+        const desc = el('div', 'muted ng-skill-desc')
+        desc.textContent = def.description
+
+        if (!t1CapOk) {
+          const capLine = el('div', 'muted')
+          capLine.style.marginTop = '6px'
+          capLine.textContent = `Tier 1 cap reached for this branch (${TIER1_MAX_UNLOCKS_PER_BRANCH}).`
+          desc.appendChild(capLine)
+        }
+
+        if (!prereqOk) {
+          const reqLine = el('div', 'muted')
+          reqLine.style.marginTop = '6px'
+          const parts = unmet.map((r) => {
+            const need = Math.max(1, Math.floor(r.rank ?? 1))
+            const nm = skillsById.get(r.id)?.name ?? r.id
+            return `${nm}${need > 1 ? ` (Rank ${need})` : ''}`
+          })
+          reqLine.textContent = `Requires: ${parts.join(', ')}`
+          desc.appendChild(reqLine)
+        }
+
+        const rankLine = el('div', 'ng-skill-rank')
+        const pips = Array.from({ length: def.maxRank }, (_, i) => (i < rank ? '●' : '○')).join('')
+        rankLine.innerHTML = `Rank: <span class="mono">${pips}</span>`
+
+        const actions = el('div', 'ng-skill-actions')
+        const buy = btn(isMax ? 'Max' : rank > 0 ? 'Rank Up (1 SP)' : 'Unlock (1 SP)', 'btn btn-primary')
+        buy.disabled = locked || isMax || !canSpend
+        buy.onclick = () => {
+          const r = g.buySkill(def.id as SkillId)
+          if (!r.ok) {
+            pushToast(r.reason ?? 'Cannot buy skill.', 'warn')
+            return
+          }
+          pushToast(`Skill Unlocked: ${def.name}`, 'good')
+          overlay.remove()
+          void showSkillsModal()
+        }
+
+        actions.appendChild(buy)
+
+        if (locked) {
+          const lock = el('div', 'ng-skill-lock')
+          lock.textContent = '🔒'
+          card.appendChild(lock)
+        }
+
+        card.append(head, desc, rankLine, actions)
+        row.appendChild(card)
+      }
+
+      section.appendChild(row)
+      grid.appendChild(section)
+    }
+
+    b.appendChild(grid)
+    modal.append(h, b)
+
+    overlay.addEventListener('pointerdown', (e) => {
+      if (e.target === overlay) overlay.remove()
+    })
+  }
+
   function renderHUD(overlayActive: boolean) {
     const state = lastState
     if (!state) return
@@ -755,11 +1009,19 @@ export function createUIStateMachine(args: UIArgs) {
 
     const timeLeft = Math.max(0, config.sim.waveDurationSec - sim.waveTimeSec)
 
+    const lvl = Math.max(0, Math.floor(state.skills?.level ?? 0))
+    const xp = Math.max(0, Math.floor(state.skills?.xp ?? 0))
+    const sp = Math.max(0, Math.floor(state.skills?.skillPoints ?? 0))
+    const nextXP = xpToNext(lvl)
+
     bar.append(
       kv('Wave', String(state.wave), true),
       kv('Time', formatTimeMMSS(timeLeft), true),
       kv('Gold', formatNumber(state.gold, state.settings.numberFormat), true),
       kv('Paladyum', formatPaladyumInt(state.stats.paladyumDroppedThisRun ?? 0), true),
+      kv('Level', String(lvl), true),
+      kv('XP', `${xp}/${nextXP}`, true),
+      kv('SP', String(sp), true),
       kv('DPS', formatNumber(sim.wave.dpsSnap, state.settings.numberFormat), true),
       kv('HP', `${formatNumber(state.baseHP, 'suffix')}`, true),
     )
@@ -2183,6 +2445,18 @@ export function createUIStateMachine(args: UIArgs) {
       <div style="height:10px"></div>
 
       <div class="muted">
+        <div style="font-weight:900; margin-bottom:6px">Skills (XP / Level / Skill Points)</div>
+        <div>Skills are a permanent progression layer that gives small, controlled bonuses.</div>
+        <div>• You gain <b>XP at wave end</b>. Higher waves grant more XP via a wave multiplier.</div>
+        <div>• When you <b>level up</b>, you gain <b>1 Skill Point</b>.</div>
+        <div>• Spend Skill Points in the <b>Skills</b> menu (Attack / Defense / Utility).</div>
+        <div>• Tiers are gated per-branch: Tier 2 / 3 / 4 unlock at <b>2 / 4 / 6</b> skills in the same branch.</div>
+        <div>• You can <b>Respec</b> all skills for <b>Paladyum</b>; the cost increases each time.</div>
+      </div>
+
+      <div style="height:10px"></div>
+
+      <div class="muted">
         <div style="font-weight:900; margin-bottom:6px">What Does Deterministic (No RNG) Mean?</div>
         <div>With the same wave, the same upgrades, the same modules, and the same settings, the game produces the same outcomes.</div>
         <div>This makes balance and build experiments easier to read: decisions matter more than luck.</div>
@@ -2194,6 +2468,7 @@ export function createUIStateMachine(args: UIArgs) {
         <div style="font-weight:900; margin-bottom:6px">Tips</div>
         <div>• If you miss the KR target: stabilize DPS first (damage/fire rate), then add survivability.</div>
         <div>• If too many enemies escape: range + slow + baseHP/repair combos are strong.</div>
+        <div>• If you just leveled up: spend Skill Points in Skills to smooth out your build.</div>
         <div>• For performance: Settings → <span class="mono">Reduce Effects</span>.</div>
       </div>
     `
@@ -2230,10 +2505,15 @@ export function createUIStateMachine(args: UIArgs) {
     const b = el('div', 'panel-body')
     const warn = report.penaltyFactor < 1
 
+    const xpInfo = typeof report.xpGain === 'number' && Number.isFinite(report.xpGain)
+      ? `<div class="muted">XP: <span class="mono">+${Math.max(0, Math.floor(report.xpGain))}</span> • Wave XP Mult: <span class="mono">x${(report.xpMultiplier ?? 1).toFixed(2)}</span> • Level: <span class="mono">${report.levelBefore ?? 0} → ${report.levelAfter ?? (report.levelBefore ?? 0)}</span></div>`
+      : ''
+
     b.innerHTML = `
       <div class="muted">Killed: <span class="mono">${report.killed}</span> • Escaped: <span class="mono">${report.escaped}</span></div>
       <div class="muted">KR: <span class="mono">${report.killRatio.toFixed(2)}</span> • Target: <span class="mono">${report.threshold.toFixed(2)}</span></div>
       <div class="muted">Reward: <span class="mono">${formatNumber(report.rewardGold, lastState?.settings.numberFormat ?? 'suffix')}</span> gold • <span class="mono">${formatPaladyumInt(report.rewardPoints)}</span> Paladyum</div>
+      ${xpInfo}
       <div class="muted" style="margin-top:6px; color:${warn ? 'var(--danger)' : 'var(--neon-lime)'}">Penalty Multiplier: <span class="mono">x${report.penaltyFactor.toFixed(2)}</span></div>
     `
 

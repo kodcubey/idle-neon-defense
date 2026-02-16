@@ -120,6 +120,150 @@ body { overflow: hidden; }
   animation: ng-spin 650ms linear infinite;
 }
 
+/* ---------- Toasts ----------------------------------------------------- */
+.ng-toasts {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+  z-index: 20000;
+}
+
+.ng-toast {
+  pointer-events: none;
+  background: rgba(12, 16, 36, 0.85);
+  border: 1px solid var(--border);
+  box-shadow: var(--glow-sm);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  max-width: min(520px, calc(100vw - 24px));
+  animation: ng-toast-in 180ms var(--ease) both;
+}
+
+.ng-toast.good { border-color: rgba(168, 255, 0, 0.35); }
+.ng-toast.warn { border-color: rgba(255, 53, 69, 0.40); }
+
+@keyframes ng-toast-in {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* ---------- Skills Modal ---------------------------------------------- */
+.ng-skills-top {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.ng-skills-tabs .btn {
+  min-width: 92px;
+}
+
+.ng-skills-grid {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ng-skill-tier {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: rgba(12, 16, 36, 0.40);
+  overflow: hidden;
+}
+
+.ng-skill-tier-header {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 900;
+  letter-spacing: 0.03em;
+}
+
+.ng-skill-tier-row {
+  padding: 10px 10px 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.ng-skill-node {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: rgba(10, 14, 30, 0.45);
+  padding: 10px;
+  box-shadow: var(--glow-sm);
+}
+
+.ng-skill-node.active {
+  border-color: rgba(0, 229, 255, 0.35);
+  box-shadow: var(--glow-md);
+}
+
+.ng-skill-node.locked {
+  opacity: 0.55;
+}
+
+.ng-skill-node.maxed {
+  border-color: rgba(168, 255, 0, 0.28);
+}
+
+.ng-skill-node-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-weight: 900;
+}
+
+.ng-skill-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  color: var(--neon-cyan);
+  background: rgba(0, 229, 255, 0.04);
+}
+
+.ng-skill-name {
+  font-size: 13px;
+}
+
+.ng-skill-desc {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.ng-skill-rank {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.ng-skill-actions {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ng-skill-lock {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 14px;
+  opacity: 0.9;
+}
+
 /* ---------- Row / Stack ------------------------------------------------- */
 .row {
   display: flex;
