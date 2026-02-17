@@ -494,7 +494,7 @@ export function createUIStateMachine(args: UIArgs) {
       kv('Level', String(lvl), true, 'kv-cyan'),
       kv('XP', `${xp}/${nextXP}`, true, 'kv-cyan'),
       kv('Skill Pts', String(sp), true, sp > 0 ? 'kv-magenta' : undefined),
-      kv('Paladyum', pal, true, 'kv-lime'),
+      kv('Palladium', pal, true, 'kv-lime'),
     )
     return bar
   }
@@ -919,7 +919,7 @@ export function createUIStateMachine(args: UIArgs) {
 
     const labPanel = el('div', 'ng-lab-panel')
     const labHead = el('div', 'ng-lab-head')
-    labHead.innerHTML = `<div style="font-weight:900; letter-spacing:0.03em">Research</div><div class="muted" style="font-size:11px">Real-time research • Costs Paladyum</div>`
+    labHead.innerHTML = `<div style="font-weight:900; letter-spacing:0.03em">Research</div><div class="muted" style="font-size:11px">Real-time research • Costs Palladium</div>`
 
     const labelForKey: Record<TowerUpgradeKey, string> = {
       damage: 'Damage',
@@ -1058,7 +1058,7 @@ export function createUIStateMachine(args: UIArgs) {
 
         const line = el('div', 'muted')
         line.style.fontSize = '11px'
-        line.innerHTML = `Next: <span class="mono">${formatTimeHhMmSs(durSec)}</span> • Cost: <span class="mono">${formatPaladyumInt(costPoints)}</span> Paladyum`
+        line.innerHTML = `Next: <span class="mono">${formatTimeHhMmSs(durSec)}</span> • Cost: <span class="mono">${formatPaladyumInt(costPoints)}</span> Palladium`
 
         const startBtn = btn('Start Research', 'btn btn-primary')
         startBtn.disabled = busyOther
@@ -1156,11 +1156,11 @@ export function createUIStateMachine(args: UIArgs) {
     const respecBtn = btn(`Respec (${formatPaladyumInt(respecCostNow)})`, 'btn')
     respecBtn.onclick = () => {
       const nextCost = skillsRespecCostPoints(Math.max(0, Math.floor(state.skills?.respecCount ?? 0)))
-      const ok = window.confirm(`Reset all skills for Paladyum?\nCost: ${formatPaladyumInt(nextCost)} (increases each time).`)
+      const ok = window.confirm(`Reset all skills for Palladium?\nCost: ${formatPaladyumInt(nextCost)} (increases each time).`)
       if (!ok) return
       const r = g.respecSkills()
       if (!r.ok) {
-        pushToast(`Not enough Paladyum. Respec cost: ${formatPaladyumInt(r.cost)}`, 'warn')
+        pushToast(`Not enough Palladium. Respec cost: ${formatPaladyumInt(r.cost)}`, 'warn')
         return
       }
       pushToast(`Skills reset (cost: ${formatPaladyumInt(r.cost)})`, 'good')
@@ -1304,7 +1304,7 @@ export function createUIStateMachine(args: UIArgs) {
       kv('Wave', String(state.wave), true),
       kv('Time', formatTimeMMSS(timeLeft), true),
       kv('Gold', formatNumber(state.gold, state.settings.numberFormat), true),
-      kv('Paladyum', formatPaladyumInt(state.stats.paladyumDroppedThisRun ?? 0), true),
+      kv('Palladium', formatPaladyumInt(state.stats.paladyumDroppedThisRun ?? 0), true),
       kv('Level', String(lvl), true),
       kv('XP', `${xp}/${nextXP}`, true),
       kv('SP', String(sp), true),
@@ -2017,7 +2017,7 @@ export function createUIStateMachine(args: UIArgs) {
 
     if (unlockedSlots < maxSlots) {
       const cost = moduleSlotUnlockCostPoints(unlockedSlots, config)
-      const buy = btn(`Buy Slot (${formatPaladyumInt(cost)} Paladyum)`, 'btn btn-primary')
+      const buy = btn(`Buy Slot (${formatPaladyumInt(cost)} Palladium)`, 'btn btn-primary')
       buy.style.marginTop = '10px'
       buy.onclick = () => {
         void (async () => {
@@ -2110,7 +2110,7 @@ export function createUIStateMachine(args: UIArgs) {
       const isUnlocked = !!lastState.modulesUnlocked[def.id]
       if (!isUnlocked) {
         const cost = moduleUnlockCostPoints(unlockedCount, config)
-        const b = btn(`Unlock (${formatPaladyumInt(cost)} Paladyum)`, 'btn btn-primary')
+        const b = btn(`Unlock (${formatPaladyumInt(cost)} Palladium)`, 'btn btn-primary')
         b.onclick = () => {
           void (async () => {
             const doLocal = () => {
@@ -2399,7 +2399,7 @@ export function createUIStateMachine(args: UIArgs) {
     if (def.baseHPMultPerLevel) parts.push(`Max HP Mult: ${pctFromFrac(def.baseHPMultPerLevel * effLevel)}`)
     if (def.goldMultPerLevel) parts.push(`Gold Mult: ${pctFromFrac(def.goldMultPerLevel * effLevel)}`)
 
-    if (def.pointsMultPerLevel) parts.push(`Paladyum Mult: ${pctFromFrac(def.pointsMultPerLevel * effLevel)}`)
+    if (def.pointsMultPerLevel) parts.push(`Palladium Mult: ${pctFromFrac(def.pointsMultPerLevel * effLevel)}`)
 
     if (def.thresholdAddPerLevel) parts.push(`KR Target: ${ppFromFrac(def.thresholdAddPerLevel * effLevel)}`)
     if (def.penKMultPerLevel) parts.push(`Penalty K: ${pctFromFrac(def.penKMultPerLevel * effLevel)}`)
@@ -2702,10 +2702,10 @@ export function createUIStateMachine(args: UIArgs) {
       <div style="height:10px"></div>
 
       <div class="muted">
-        <div style="font-weight:900; margin-bottom:6px">Economy: Gold & Paladyum</div>
+        <div style="font-weight:900; margin-bottom:6px">Economy: Gold & Palladium</div>
         <div>• <b>Gold</b>: used for in-run upgrades (damage, fire rate, range, etc.).</div>
-        <div>• <b>Paladyum</b>: permanent meta currency (Meta Upgrades, modules, slot unlocks).</div>
-        <div>• Paladyum is granted deterministically at wave end (affected by your performance and modules).</div>
+        <div>• <b>Palladium</b>: permanent meta currency (Meta Upgrades, modules, slot unlocks).</div>
+        <div>• Palladium is granted deterministically at wave end (affected by your performance and modules).</div>
       </div>
 
       <div style="height:10px"></div>
@@ -2724,7 +2724,7 @@ export function createUIStateMachine(args: UIArgs) {
       <div class="muted">
         <div style="font-weight:900; margin-bottom:6px">Modules</div>
         <div>Modules are the core of build-making. Offense/Defense/Utility modules change how your tower behaves.</div>
-        <div>• Modules are not random drops; you unlock them with Paladyum and upgrade their levels.</div>
+        <div>• Modules are not random drops; you unlock them with Palladium and upgrade their levels.</div>
         <div>• Slot count is limited; you unlock more slots as you progress.</div>
       </div>
 
@@ -2737,7 +2737,7 @@ export function createUIStateMachine(args: UIArgs) {
         <div>• When you <b>level up</b>, you gain <b>1 Skill Point</b>.</div>
         <div>• Spend Skill Points in the <b>Skills</b> menu (Attack / Defense / Utility).</div>
         <div>• Tiers are gated per-branch: Tier 2 / 3 / 4 unlock at <b>2 / 4 / 6</b> skills in the same branch.</div>
-        <div>• You can <b>Respec</b> all skills for <b>Paladyum</b>; the cost increases each time.</div>
+        <div>• You can <b>Respec</b> all skills for <b>Palladium</b>; the cost increases each time.</div>
       </div>
 
       <div style="height:10px"></div>
@@ -2798,7 +2798,7 @@ export function createUIStateMachine(args: UIArgs) {
     b.innerHTML = `
       <div class="muted">Killed: <span class="mono">${report.killed}</span> • Escaped: <span class="mono">${report.escaped}</span></div>
       <div class="muted">KR: <span class="mono">${report.killRatio.toFixed(2)}</span> • Target: <span class="mono">${report.threshold.toFixed(2)}</span></div>
-      <div class="muted">Reward: <span class="mono">${formatNumber(report.rewardGold, lastState?.settings.numberFormat ?? 'suffix')}</span> gold • <span class="mono">${formatPaladyumInt(report.rewardPoints)}</span> Paladyum</div>
+      <div class="muted">Reward: <span class="mono">${formatNumber(report.rewardGold, lastState?.settings.numberFormat ?? 'suffix')}</span> gold • <span class="mono">${formatPaladyumInt(report.rewardPoints)}</span> Palladium</div>
       ${xpInfo}
       <div class="muted" style="margin-top:6px; color:${warn ? 'var(--danger)' : 'var(--neon-lime)'}">Penalty Multiplier: <span class="mono">x${report.penaltyFactor.toFixed(2)}</span></div>
     `

@@ -82,7 +82,8 @@ export const defaultConfig: GameConfig = {
     gamma: 0.68,
     goldWaveK: 0.16,
     // Paladyum baseline per-wave reward (tiered by 10 waves).
-    p0: 5,
+    // Tuned up to keep early-game motivation (17 Şubat 2026).
+    p0: 7.5,
     pointsGrowthPer10: 1.22,
     paladyumDropRate: 0.03,
 

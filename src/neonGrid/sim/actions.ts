@@ -268,7 +268,7 @@ export function startLabResearch(args: { state: GameState; cfg: GameConfig; key:
   const costPoints = researchCostPointsForNext(state.lab, key)
   const durSec = researchDurationSecForNext(state.lab, key)
 
-  if (state.points < costPoints) return { ok: false, state: args.state, reason: 'Not enough Paladyum.' }
+  if (state.points < costPoints) return { ok: false, state: args.state, reason: 'Not enough Palladium.' }
 
   state.points = Math.max(0, Math.floor(state.points - costPoints))
   state.lab.research = {

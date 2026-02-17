@@ -121,7 +121,7 @@ function effectsToDescription(e: SkillEffects, maxRank: 1 | 2 | 3): string {
   if (e.escapeDmgTakenPct) parts.push(`${fmtPct(e.escapeDmgTakenPct)} escape damage taken`)
   if (e.repairPct) parts.push(`${fmtPct(e.repairPct)} repair effectiveness`)
   if (e.goldPct) parts.push(`${fmtPct(e.goldPct)} wave gold reward`)
-  if (e.pointsPct) parts.push(`${fmtPct(e.pointsPct)} Paladyum reward`)
+  if (e.pointsPct) parts.push(`${fmtPct(e.pointsPct)} Palladium reward`)
   if (e.shopDiscountPct) parts.push(`${fmtPct(-e.shopDiscountPct)} shop prices`)
   if (e.xpPct) parts.push(`${fmtPct(e.xpPct)} XP gain`)
   if (e.cooldownDiscountPct) parts.push(`${fmtPct(-e.cooldownDiscountPct)} skill cooldowns`)
@@ -744,9 +744,9 @@ export const SKILLS: SkillDef[] = [
     id: 'UT_PALADYUM_SCANNER',
     branch: 'utility',
     tier: 3,
-    name: 'Paladyum Scanner',
+    name: 'Palladium Scanner',
     effects: { pointsPct: 0.06 },
-    description: 'Each rank: +6% Paladyum reward (max +12%).',
+    description: 'Each rank: +6% Palladium reward (max +12%).',
     requires: [{ id: 'UT_SCAVENGER_SENSE', rank: 1 }],
     icon: icon(`<path d="M12 4a8 8 0 1 0 8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
       <path d="M12 8v4l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -837,7 +837,7 @@ export const SKILLS: SkillDef[] = [
     branch: 'utility',
     tier: 3,
     prefix: 'UT_T3_POINTS_CELL',
-    names: ['Scanner Array', 'Paladyum Map', 'Drop Routing'],
+    names: ['Scanner Array', 'Palladium Map', 'Drop Routing'],
     effects: [{ pointsPct: 0.10 }, { pointsPct: 0.08, goldPct: 0.04 }, { pointsPct: 0.07, xpPct: 0.05 }],
     maxRank: 2,
     icon: iconUtility(),
@@ -864,7 +864,7 @@ export const SKILLS: SkillDef[] = [
     branch: 'utility',
     tier: 4,
     prefix: 'UT_T4_POINTS_CELL',
-    names: ['Paladyum Magnet', 'Reactor Scanner', 'Prime Extractor'],
+    names: ['Palladium Magnet', 'Reactor Scanner', 'Prime Extractor'],
     effects: [{ pointsPct: 0.20 }, { pointsPct: 0.16, shopDiscountPct: 0.08 }, { pointsPct: 0.14, xpPct: 0.10 }],
     maxRank: 1,
     icon: iconUtility(),
