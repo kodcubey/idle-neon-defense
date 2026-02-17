@@ -37,8 +37,6 @@ export function createNewState(config: GameConfig, nowUTC: number): GameState {
     moduleLevels[def.id] = 1
   }
 
-  // Modules start locked; unlock with Paladyum in the Modules screen.
-
   const modulesEquipped: Record<number, string | null> = {}
   for (let s = 1; s <= config.modules.slotCount; s++) modulesEquipped[s] = null
 
@@ -173,6 +171,11 @@ export function rehydrateImportedState(config: GameConfig, input: GameState, now
     ;(merged.towerUpgrades as any)[k] = Math.max(curL, metaL)
   }
 
+  // Modules: ensure objects exist (older/invalid saves may override with null).
+  if (!merged.modulesUnlocked || typeof merged.modulesUnlocked !== 'object') merged.modulesUnlocked = {}
+  if (!merged.moduleLevels || typeof merged.moduleLevels !== 'object') merged.moduleLevels = {}
+  if (!merged.modulesEquipped || typeof merged.modulesEquipped !== 'object') merged.modulesEquipped = {}
+
   // Ensure module maps contain all defs.
   for (const def of config.modules.defs) {
     if (typeof merged.modulesUnlocked[def.id] !== 'boolean') merged.modulesUnlocked[def.id] = false
@@ -198,6 +201,14 @@ export function rehydrateImportedState(config: GameConfig, input: GameState, now
     ;(merged as any).moduleSlotsUnlocked = 1
   }
   ;(merged as any).moduleSlotsUnlocked = Math.max(1, Math.min(config.modules.slotCount, Math.floor((merged as any).moduleSlotsUnlocked)))
+
+  // If Modules are disabled (no defs), keep module state neutral.
+  if (config.modules.defs.length === 0) {
+    merged.modulesUnlocked = {}
+    merged.moduleLevels = {}
+    merged.modulesEquipped = { 1: null }
+    merged.moduleSlotsUnlocked = 1
+  }
 
   // Offline progression is disabled; always refresh the save timestamp on load.
   merged.lastSaveTimestampUTC = nowUTC

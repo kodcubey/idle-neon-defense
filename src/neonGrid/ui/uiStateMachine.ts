@@ -5,15 +5,12 @@ import { createNewState } from '../persistence/save'
 import { btn, clear, el, hr, kv } from './dom'
 import { formatNumber, formatPaladyumInt, formatPct, formatTimeHhMmSs, formatTimeMMSS } from './format'
 import {
-  aggregateModules,
   baseDmg,
-  calcDPS,
   calcPenaltyFactor,
   calcWaveSnapshot,
   clamp,
   critAverageDamageMult,
   effectiveCritParams,
-  effectiveEnemySpeedMult,
   fireRate,
   towerArmorPierceBonus,
   towerEscapeDamageMult,
@@ -33,7 +30,7 @@ import {
   sanitizeLabState,
 } from '../labs/labs'
 import { calcBaseHPMax } from '../sim/actions'
-import { metaUpgradeCostPoints, moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, skillsRespecCostPoints, upgradeCost, upgradeMaxLevel } from '../sim/costs'
+import { metaUpgradeCostPoints, skillsRespecCostPoints, upgradeCost, upgradeMaxLevel } from '../sim/costs'
 import {
   SKILLS,
   TIER1_MAX_UNLOCKS_PER_BRANCH,
@@ -46,7 +43,7 @@ import {
   type SkillId,
 } from '../skills/skills'
 
-export type UIScreen = 'boot' | 'menu' | 'hud' | 'modules' | 'settings' | 'stats' | 'offline'
+export type UIScreen = 'boot' | 'menu' | 'hud' | 'settings' | 'stats' | 'offline'
 
 type UIArgs = {
   root: HTMLElement
@@ -168,13 +165,6 @@ export function createUIStateMachine(args: UIArgs) {
   let game: NeonGridGame | null = null
   let lastState: GameState | null = null
   let lastSim: SimPublic | null = null
-
-  let modulesFilter: 'ALL' | 'OFFENSE' | 'DEFENSE' | 'UTILITY' = 'ALL'
-  let modulesPage = 0
-  const MODULES_PER_PAGE = 9
-
-  // Prevent accidental click-to-unequip triggered right after a successful drop.
-  let lastSlotDropAtMs = 0
 
   let screen: UIScreen = args.initialState
 
@@ -308,7 +298,6 @@ export function createUIStateMachine(args: UIArgs) {
   }
 
   function computeTowerUIStats(state: GameState) {
-    const mods = aggregateModules(state, config)
     const skills = aggregateSkillPassives(state)
 
     const lab = sanitizeLabState((state as any).lab)
@@ -316,37 +305,39 @@ export function createUIStateMachine(args: UIArgs) {
     const frLabMult = labEffectMultForKey(lab, 'fireRate')
     const rangeLabMult = labEffectMultForKey(lab, 'range')
 
+    // Modules feature removed/disabled: keep formulas deterministic without module modifiers.
+    const noMods = { critEveryN: Number.POSITIVE_INFINITY, critMult: 1 } as any
+
     const baseDamage = baseDmg(state.towerUpgrades.damageLevel, config, dmgLabMult)
-    const damagePerShot = Math.max(0, baseDamage * mods.dmgMult * skills.dmgMult + mods.dmgFlat)
-    const crit = effectiveCritParams(state, config, mods)
-    const critAvg = critAverageDamageMult(state, config, mods)
+    const damagePerShot = Math.max(0, baseDamage * skills.dmgMult)
+    const crit = effectiveCritParams(state, config, noMods)
+    const critAvg = critAverageDamageMult(state, config, noMods)
 
     const fireRateBase = fireRate(state.towerUpgrades.fireRateLevel, config, frLabMult)
-    const fireRateFinal = Math.max(0.1, fireRateBase * (1 + mods.fireRateBonus + skills.fireRateBonus))
+    const fireRateFinal = Math.max(0.1, fireRateBase * (1 + skills.fireRateBonus))
 
     const rangeBase = towerRange(state.towerUpgrades.rangeLevel, config, rangeLabMult)
-    const rangeFinal = Math.max(0, rangeBase + mods.rangeBonus)
+    const rangeFinal = Math.max(0, rangeBase)
 
     const armorPierceBonus = towerArmorPierceBonus(state, config)
-    const armorPierceFinal = clamp(mods.armorPierce + armorPierceBonus + skills.armorPierceBonus, 0, 0.9)
+    const armorPierceFinal = clamp(config.tower.armorPierce0 + armorPierceBonus + skills.armorPierceBonus, 0, 0.9)
 
     const baseTargets = towerMultiShotCount(state, config)
-    const targetsFinal = Math.max(1, Math.floor(Math.max(baseTargets, mods.shotCount)))
+    const targetsFinal = Math.max(1, Math.floor(baseTargets))
 
     const maxHP = Math.max(1, calcBaseHPMax(state, config))
     const repairPct = towerRepairPctPerSec(state, config)
 
     const slowBaseMult = towerEnemySpeedMult(state, config)
-    const slowFinalMult = effectiveEnemySpeedMult(state, config, mods)
+    const slowFinalMult = slowBaseMult
 
     const escapeDamageMult = towerEscapeDamageMult(state, config)
 
-    const goldMultFinal = Math.max(0, mods.goldMult * towerGoldMult(state, config))
+    const goldMultFinal = Math.max(0, towerGoldMult(state, config))
 
-    const dps = calcDPS(state, config)
+    const dps = Math.max(0, damagePerShot * fireRateFinal * critAvg)
 
     return {
-      mods,
       skills,
       dps,
 
@@ -375,9 +366,6 @@ export function createUIStateMachine(args: UIArgs) {
 
       escapeDamageMult,
       goldMultFinal,
-
-      invulnDurationSec: mods.invulnDurationSec,
-      invulnCooldownSec: mods.invulnCooldownSec,
     }
   }
 
@@ -387,7 +375,7 @@ export function createUIStateMachine(args: UIArgs) {
       game.setPaused(true)
     }
     if (game && next === 'hud') {
-      // Ensure HUD reflects the latest snapshot immediately (module equips, cloud meta, etc.)
+      // Ensure HUD reflects the latest snapshot immediately.
       lastState = game.getSnapshot()
     }
     render()
@@ -424,7 +412,6 @@ export function createUIStateMachine(args: UIArgs) {
     // In-game / overlays
     renderHUD(screen !== 'hud')
 
-    if (screen === 'modules') renderModules()
     if (screen === 'settings') renderSettings()
     if (screen === 'stats') renderStats()
 
@@ -554,12 +541,6 @@ export function createUIStateMachine(args: UIArgs) {
       </svg>
     `
 
-    const iconGrid = `
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-      </svg>
-    `
-
     const iconTower = `
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M12 3 6.5 7v5.4c0 4.3 2.7 7.9 5.5 8.6 2.8-.7 5.5-4.3 5.5-8.6V7L12 3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
@@ -616,14 +597,6 @@ export function createUIStateMachine(args: UIArgs) {
       setScreen('hud')
     }
 
-    const modules = menuBtn('Modules', iconGrid, 'cyan')
-    modules.onclick = () => {
-      void (async () => {
-        if (game) game.setPaused(true)
-        await showModulesModal()
-      })()
-    }
-
     const skills = menuBtn('Skills', iconSkills, 'magenta')
     {
       const sp = Math.max(0, Math.floor((lastState as any)?.skills?.skillPoints ?? 0))
@@ -678,7 +651,7 @@ export function createUIStateMachine(args: UIArgs) {
       void showMetaUpgradesModal()
     }
 
-    row.append(newRun, metaUpg, modules, skills, labBtn, tower, stats, settings, how)
+    row.append(newRun, metaUpg, skills, labBtn, tower, stats, settings, how)
 
     body.append(infoRow, row)
 
@@ -1446,7 +1419,6 @@ export function createUIStateMachine(args: UIArgs) {
         !Number.isFinite(t.crit.everyN) || t.crit.everyN === Number.POSITIVE_INFINITY
           ? '—'
           : `1/${Math.floor(t.crit.everyN)} ×${t.crit.mult.toFixed(2)}`
-      const invText = t.invulnDurationSec > 0 && t.invulnCooldownSec > 0 ? `${t.invulnDurationSec.toFixed(2)}s / ${t.invulnCooldownSec.toFixed(0)}s` : '—'
       statsBox.innerHTML = `
         <div>DPS: <span class="mono">${formatNumber(t.dps, state.settings.numberFormat)}</span></div>
         <div>Damage/shot: <span class="mono">${formatNumber(t.damagePerShot, state.settings.numberFormat)}</span></div>
@@ -1458,127 +1430,12 @@ export function createUIStateMachine(args: UIArgs) {
         <div>Max HP: <span class="mono">${formatNumber(t.maxHP, state.settings.numberFormat)}</span></div>
         <div>Regen: <span class="mono">${formatPct(t.repairPct)}/s</span></div>
         <div>Gold Mult: <span class="mono">x${t.goldMultFinal.toFixed(2)}</span></div>
-        <div>Invuln: <span class="mono">${invText}</span></div>
       `
 
       ub.append(hr(), liveTitle, live, statsBox)
       upg.append(uh, ub)
 
-      // --- Modules (applied effects) mini-panel ---
-      const modsPanel = el('div', 'panel hud-inline-panel')
-      // Push the modules panel to the right within the HUD inline row.
-      modsPanel.style.marginLeft = 'auto'
-      const mh = el('div', 'panel-header')
-      mh.textContent = 'Modules (Active)'
-      const mb = el('div', 'panel-body')
-
-      const pctSigned = (v: number) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`
-      const numSigned = (v: number) => `${v >= 0 ? '+' : ''}${Math.floor(v)}`
-
-      const maxSlots = Math.max(1, Math.floor(config.modules.slotCount))
-      const unlockedSlots = Math.max(1, Math.min(maxSlots, Math.floor(state.moduleSlotsUnlocked ?? 1)))
-
-      const inv = el('div', 'muted')
-      inv.style.fontSize = '12px'
-
-      const anyEquipped = (() => {
-        for (let slot = 1; slot <= unlockedSlots; slot++) {
-          if (state.modulesEquipped[slot]) return true
-        }
-        return false
-      })()
-
-      const pct = (v: number) => `${(v * 100).toFixed(1)}%`
-
-      if (!anyEquipped) {
-        inv.appendChild(el('div', 'muted')).textContent = 'No modules equipped.'
-      } else {
-        for (let slot = 1; slot <= unlockedSlots; slot++) {
-          const id = state.modulesEquipped[slot]
-          if (!id) continue
-
-          const def = config.modules.defs.find((d) => d.id === id)
-          const rawLevel = Math.max(1, Math.floor(state.moduleLevels[id] ?? 1))
-          const levelCap =
-            def && typeof def.maxEffectiveLevel === 'number' && Number.isFinite(def.maxEffectiveLevel)
-              ? Math.max(0, Math.floor(def.maxEffectiveLevel))
-              : rawLevel
-          const L = Math.min(rawLevel, levelCap)
-          const name = def?.nameTR ?? id
-
-          const header = el('div', 'mono')
-          header.textContent = `S${slot}: ${name} (Lv ${rawLevel}${L !== rawLevel ? ` → ${L}` : ''})`
-          header.style.fontWeight = '800'
-          header.style.marginTop = '4px'
-
-          const details = el('div', 'muted')
-          details.style.marginLeft = '0px'
-
-          if (!def || L <= 0) {
-            details.textContent = '—'
-          } else {
-            const parts: string[] = []
-
-            if (def.dmgMultPerLevel) parts.push(`Damage Mult: x${(1 + def.dmgMultPerLevel * L).toFixed(2)}`)
-            if (def.dmgFlatPerLevel) parts.push(`Flat Damage: ${def.dmgFlatPerLevel >= 0 ? '+' : ''}${(def.dmgFlatPerLevel * L).toFixed(0)}`)
-            if (def.fireRateBonusPerLevel) parts.push(`Fire Rate: ${def.fireRateBonusPerLevel >= 0 ? '+' : ''}${pct(def.fireRateBonusPerLevel * L)}`)
-            if (def.rangeBonusPerLevel) parts.push(`Range: ${def.rangeBonusPerLevel >= 0 ? '+' : ''}${(def.rangeBonusPerLevel * L).toFixed(0)}`)
-            if (def.armorPiercePerLevel) parts.push(`Armor Pierce: ${def.armorPiercePerLevel >= 0 ? '+' : ''}${pct(def.armorPiercePerLevel * L)}`)
-            if (def.baseHPBonusPerLevel) parts.push(`Base HP: ${def.baseHPBonusPerLevel >= 0 ? '+' : ''}${(def.baseHPBonusPerLevel * L).toFixed(0)}`)
-            if (def.baseHPMultPerLevel) parts.push(`Max HP Mult: x${(1 + def.baseHPMultPerLevel * L).toFixed(2)}`)
-            if (def.goldMultPerLevel) parts.push(`Gold Mult: x${(1 + def.goldMultPerLevel * L).toFixed(2)}`)
-
-            if (def.shotCountPerLevel) {
-              const add = Math.max(0, Math.floor(def.shotCountPerLevel * L))
-              if (add > 0) parts.push(`Ability: Multi-shot (+${add} targets)`)
-            }
-            if (def.invulnDurationSecPerLevel && def.invulnCooldownSec) {
-              const dur = Math.max(0, def.invulnDurationSecPerLevel * L)
-              if (dur > 0) parts.push(`Ability: Escape Invuln (${dur.toFixed(2)}s / ${def.invulnCooldownSec.toFixed(0)}s)`)
-            }
-
-            details.textContent = parts.length ? parts.join(' • ') : '—'
-          }
-
-          inv.append(header, details)
-        }
-      }
-
-      const agg = aggregateModules(state, config)
-
-      const effects = el('div', 'muted')
-      effects.style.fontSize = '12px'
-      effects.style.marginTop = '6px'
-
-      const effectLines: string[] = []
-      if (agg.dmgMult !== 1) effectLines.push(`Damage Mult: <span class="mono">x${agg.dmgMult.toFixed(2)}</span>`)
-      if (agg.dmgFlat !== 0) effectLines.push(`Flat Damage: <span class="mono">${numSigned(agg.dmgFlat)}</span>`)
-      if (agg.fireRateBonus !== 0) effectLines.push(`Fire Rate: <span class="mono">${pctSigned(agg.fireRateBonus)}</span>`)
-      if (agg.rangeBonus !== 0) effectLines.push(`Range: <span class="mono">${numSigned(agg.rangeBonus)}</span>`)
-      if (agg.baseHPBonus !== 0) effectLines.push(`Base HP: <span class="mono">${numSigned(agg.baseHPBonus)}</span>`)
-      if (agg.baseHPMult !== 1) effectLines.push(`Max HP Mult: <span class="mono">x${agg.baseHPMult.toFixed(2)}</span>`)
-      if (agg.goldMult !== 1) effectLines.push(`Gold Mult: <span class="mono">x${agg.goldMult.toFixed(2)}</span>`)
-      if (agg.armorPierce !== config.tower.armorPierce0) effectLines.push(`Armor Pierce: <span class="mono">${formatPct(agg.armorPierce)}</span>`)
-
-      if (agg.shotCount > 1) effectLines.push(`Ability: <span class="mono">Multi-shot</span> (${agg.shotCount} targets)`)
-      if (Number.isFinite(agg.critEveryN) && agg.critEveryN !== Number.POSITIVE_INFINITY && agg.critMult > 1.000001) {
-        effectLines.push(`Ability: <span class="mono">Crit</span> (every ${Math.max(2, Math.floor(agg.critEveryN))} shots, x${agg.critMult.toFixed(2)})`)
-      }
-      if (agg.enemySpeedMult !== 1) {
-        effectLines.push(`Enemy Speed: <span class="mono">x${agg.enemySpeedMult.toFixed(2)}</span>`)
-      }
-      if (agg.invulnDurationSec > 0 && agg.invulnCooldownSec > 0) {
-        effectLines.push(
-          `Ability: <span class="mono">Invuln vs escapes</span> (${agg.invulnDurationSec.toFixed(2)}s / ${agg.invulnCooldownSec.toFixed(0)}s)`,
-        )
-      }
-
-      effects.innerHTML = effectLines.length ? effectLines.map((t) => `<div>${t}</div>`).join('') : `<div class="muted">No active bonuses.</div>`
-
-      mb.append(inv, hr(), effects)
-      modsPanel.append(mh, mb)
-
-      panels.append(upg, modsPanel)
+      panels.append(upg)
       center.appendChild(panels)
     }
   }
@@ -1609,8 +1466,6 @@ export function createUIStateMachine(args: UIArgs) {
         ? '—'
         : `1/${Math.floor(t.crit.everyN)} ×${t.crit.mult.toFixed(2)}`
     const critAvgText = `x${t.critAvg.toFixed(3)}`
-    const invText = t.invulnDurationSec > 0 && t.invulnCooldownSec > 0 ? `${t.invulnDurationSec.toFixed(2)}s / ${t.invulnCooldownSec.toFixed(0)}s` : '—'
-
     body.append(
       kv('DPS', formatNumber(t.dps, lastState.settings.numberFormat), true),
       kv('Damage/shot', formatNumber(t.damagePerShot, lastState.settings.numberFormat), true),
@@ -1624,7 +1479,6 @@ export function createUIStateMachine(args: UIArgs) {
       kv('Slow (enemy speed mult)', t.slowFinalMult.toFixed(3), true),
       kv('Escape Damage Mult', t.escapeDamageMult.toFixed(3), true),
       kv('Gold Mult', `x${t.goldMultFinal.toFixed(3)}`, true),
-      kv('Invulnerability', invText, true),
     )
 
     body.appendChild(hr())
@@ -1632,9 +1486,6 @@ export function createUIStateMachine(args: UIArgs) {
     const breakdown = el('div', 'muted')
     breakdown.style.fontSize = '12px'
     breakdown.innerHTML = `<div style="font-weight:800">Breakdown</div>`
-
-    const apFromModules = t.mods.armorPierce - config.tower.armorPierce0
-    const slowFromModules = t.mods.enemySpeedMult
 
     const row = (label: string, text: string) => {
       const d = el('div', 'muted')
@@ -1645,75 +1496,39 @@ export function createUIStateMachine(args: UIArgs) {
     breakdown.append(
       row(
         'Damage/shot',
-        `base ${formatNumber(t.baseDamage, lastState!.settings.numberFormat)} × mods ${t.mods.dmgMult.toFixed(3)} ${t.mods.dmgFlat >= 0 ? '+' : ''}${t.mods.dmgFlat.toFixed(1)} = <span class="mono">${formatNumber(t.damagePerShot, lastState!.settings.numberFormat)}</span>`,
+        `base ${formatNumber(t.baseDamage, lastState!.settings.numberFormat)} × skills ${t.skills.dmgMult.toFixed(3)} = <span class="mono">${formatNumber(t.damagePerShot, lastState!.settings.numberFormat)}</span>`,
       ),
       row(
         'Fire rate',
-        `base ${t.fireRateBase.toFixed(3)}/s × (1 ${t.mods.fireRateBonus >= 0 ? '+' : ''}${(t.mods.fireRateBonus * 100).toFixed(1)}%) = <span class="mono">${t.fireRateFinal.toFixed(3)}/s</span>`,
+        `base ${t.fireRateBase.toFixed(3)}/s × (1 ${t.skills.fireRateBonus >= 0 ? '+' : ''}${(t.skills.fireRateBonus * 100).toFixed(1)}%) = <span class="mono">${t.fireRateFinal.toFixed(3)}/s</span>`,
       ),
       row(
         'Range',
-        `base ${Math.floor(t.rangeBase)} ${t.mods.rangeBonus >= 0 ? '+' : ''}${t.mods.rangeBonus.toFixed(1)} (mods) = <span class="mono">${Math.floor(t.rangeFinal)}</span>`,
+        `base <span class="mono">${Math.floor(t.rangeBase)}</span>`,
       ),
       row(
         'Armor Pierce',
-        `base ${formatPct(config.tower.armorPierce0)} ${apFromModules >= 0 ? '+' : ''}${(apFromModules * 100).toFixed(1)}% (mods) + ${formatPct(t.armorPierceBonus)} (upgrade) = <span class="mono">${formatPct(t.armorPierceFinal)}</span>`,
+        `base ${formatPct(config.tower.armorPierce0)} + ${formatPct(t.armorPierceBonus)} (upgrade) + ${formatPct(t.skills.armorPierceBonus)} (skills) = <span class="mono">${formatPct(t.armorPierceFinal)}</span>`,
       ),
       row(
         'Targets',
-        `max(upgrade ${t.baseTargets}, mods ${t.mods.shotCount}) = <span class="mono">${t.targetsFinal}</span>`,
+        `upgrade <span class="mono">${t.baseTargets}</span>`,
       ),
       row(
         'Max HP',
-        `baseHP track uses mods: +${t.mods.baseHPBonus.toFixed(1)} and ×${t.mods.baseHPMult.toFixed(3)} ⇒ <span class="mono">${formatNumber(t.maxHP, lastState!.settings.numberFormat)}</span>`,
+        `<span class="mono">${formatNumber(t.maxHP, lastState!.settings.numberFormat)}</span>`,
       ),
       row(
         'Slow',
-        `upgrade ${t.slowBaseMult.toFixed(3)} × mods ${slowFromModules.toFixed(3)} = <span class="mono">${t.slowFinalMult.toFixed(3)}</span>`,
+        `<span class="mono">${t.slowFinalMult.toFixed(3)}</span>`,
       ),
       row(
         'Gold Mult',
-        `upgrade x${towerGoldMult(lastState!, config).toFixed(3)} × mods x${t.mods.goldMult.toFixed(3)} = <span class="mono">x${t.goldMultFinal.toFixed(3)}</span>`,
+        `<span class="mono">x${t.goldMultFinal.toFixed(3)}</span>`,
       ),
     )
 
     body.appendChild(breakdown)
-
-    body.appendChild(hr())
-
-    const modsTitle = el('div')
-    modsTitle.style.fontWeight = '800'
-    modsTitle.textContent = 'Modules (Active Effects)'
-    body.appendChild(modsTitle)
-
-    const maxSlots = Math.max(1, Math.floor(config.modules.slotCount))
-    const unlockedSlots = Math.max(1, Math.min(maxSlots, Math.floor(lastState.moduleSlotsUnlocked ?? 1)))
-    let anyEquipped = false
-    for (let slot = 1; slot <= unlockedSlots; slot++) {
-      const id = lastState.modulesEquipped[slot]
-      if (!id) continue
-      anyEquipped = true
-
-      const def = config.modules.defs.find((d) => d.id === id)
-      const rawLevel = Math.max(1, Math.floor(lastState.moduleLevels[id] ?? 1))
-
-      const title = el('div', 'mono')
-      title.style.fontWeight = '800'
-      title.style.marginTop = '6px'
-      title.textContent = `S${slot}: ${def?.nameTR ?? id} (Lv ${rawLevel})`
-
-      const effect = el('div', 'muted')
-      effect.style.fontSize = '12px'
-      effect.textContent = def ? moduleEffectText(def, rawLevel, config) : '—'
-
-      body.append(title, effect)
-    }
-    if (!anyEquipped) {
-      const none = el('div', 'muted')
-      none.style.fontSize = '12px'
-      none.textContent = 'No modules equipped.'
-      body.appendChild(none)
-    }
 
     panel.append(header, body)
     return panel
@@ -1843,616 +1658,6 @@ export function createUIStateMachine(args: UIArgs) {
     controls.append(b1, b10, bM)
     box.append(left, controls)
     return box
-  }
-
-  function buildModulesPanel(args: {
-    backLabel: string
-    onBack: () => void
-    rerender: () => void
-  }): HTMLElement {
-    if (!game || !lastState) return el('div')
-
-    const g = game
-
-    // Cloud/auth persistence was removed. Keep these as no-ops to simplify UI logic.
-    const shouldCloudSyncOnEquip = () => false
-    const persistMetaAfterLocalChange = async () => {}
-
-    const panel = el('div', 'panel')
-    panel.style.maxWidth = '1180px'
-    panel.style.margin = '0 auto'
-    panel.style.pointerEvents = 'auto'
-
-    const header = el('div', 'panel-header')
-    header.appendChild(el('div')).textContent = 'Modules'
-
-    const back = btn(args.backLabel, 'btn')
-    back.onclick = () => args.onBack()
-    header.appendChild(back)
-
-    const body = el('div', 'panel-body')
-
-    const layout = el('div', 'ng-modules-layout')
-
-    const bal = renderResourcesBar(lastState as any)
-    bal.classList.add('ng-modules-balance')
-
-    const renderEffectList = (text: string): HTMLElement => {
-      const ul = document.createElement('ul')
-      ul.className = 'ng-mod-effect'
-      const lines = String(text || '')
-        .split(' • ')
-        .map((s) => s.trim())
-        .filter(Boolean)
-      for (const line of lines) {
-        const li = document.createElement('li')
-        li.textContent = line
-        ul.appendChild(li)
-      }
-      return ul
-    }
-
-    // Slots / Equip
-    const slotsPanel = el('div', 'panel')
-    const sh = el('div', 'panel-header')
-    sh.textContent = 'Slots'
-    const sb = el('div', 'panel-body')
-
-    const maxSlots = Math.max(1, Math.floor(config.modules.slotCount))
-    const unlockedSlots = Math.max(1, Math.min(maxSlots, Math.floor(lastState.moduleSlotsUnlocked ?? 1)))
-
-    const meta = el('div', 'muted')
-    meta.style.marginBottom = '8px'
-    meta.textContent = `Unlocked slots: ${unlockedSlots} / ${maxSlots}`
-    sb.appendChild(meta)
-
-    const unlockedDefs = config.modules.defs.filter((d) => !!lastState!.modulesUnlocked[d.id])
-    unlockedDefs.sort((a, b) => (a.category + a.nameTR).localeCompare(b.category + b.nameTR))
-
-    const equippedIds = new Set<string>()
-    const equippedById = new Map<string, number>()
-    for (let s = 1; s <= maxSlots; s++) {
-      const id = lastState.modulesEquipped[s]
-      if (id) {
-        equippedIds.add(id)
-        if (!equippedById.has(id)) equippedById.set(id, s)
-      }
-    }
-
-    const firstEmptyUnlockedSlot = (): number | null => {
-      for (let s = 1; s <= unlockedSlots; s++) {
-        if (!lastState!.modulesEquipped[s]) return s
-      }
-      return null
-    }
-
-    const setEquip = async (slot: number, id: string | null): Promise<boolean> => {
-      if (!game) return false
-
-      const doLocal = () => {
-        const ok = game!.equipModule(slot, id)
-        if (!ok) return false
-        lastState = game!.getSnapshot()
-        return true
-      }
-
-      const ok = doLocal()
-      if (ok) args.rerender()
-      return ok
-    }
-
-    const slotsGrid = el('div', 'ng-modules-slots-grid')
-
-    const getModuleLabel = (id: string) => {
-      const def = config.modules.defs.find((d) => d.id === id)
-      const L = Math.max(1, Math.floor(lastState!.moduleLevels[id] ?? 1))
-      return def ? `${def.nameTR} (Lv ${L})` : `${id} (Lv ${L})`
-    }
-
-    for (let s = 1; s <= maxSlots; s++) {
-      const slotBox = el('div', 'panel')
-      slotBox.style.cursor = s <= unlockedSlots ? 'default' : 'not-allowed'
-      ;(slotBox as any).dataset.ngSlot = String(s)
-
-      const equippedId = lastState.modulesEquipped[s] ?? null
-
-      const hh = el('div', 'panel-header')
-      const left = el('div')
-      left.textContent = `Slot ${s}`
-      const right = el('div')
-      hh.append(left, right)
-
-      const bb = el('div', 'panel-body')
-      bb.style.minHeight = '56px'
-      if (s <= unlockedSlots) {
-        bb.textContent = ''
-
-        if (!equippedId) {
-          const empty = el('div', 'mono')
-          empty.textContent = 'Empty'
-          bb.appendChild(empty)
-
-          const hint = el('div', 'muted')
-          hint.style.fontSize = '12px'
-          hint.style.marginTop = '6px'
-          hint.textContent = 'Use “Add” on a module card.'
-          bb.appendChild(hint)
-        } else {
-          const def = config.modules.defs.find((d) => d.id === equippedId)
-
-          const title = el('div', 'mono')
-          title.style.marginBottom = '6px'
-          title.textContent = getModuleLabel(equippedId)
-
-          const effect = el('div', 'muted')
-          effect.style.fontSize = '12px'
-          const effectText = def ? moduleEffectText(def, Math.max(1, Math.floor(lastState!.moduleLevels[equippedId] ?? 1)), config) : ''
-          bb.append(title, renderEffectList(effectText))
-
-          const remove = btn('Remove', 'btn btn-danger')
-          remove.onclick = (e) => {
-            e.stopPropagation()
-            if (Date.now() - lastSlotDropAtMs < 250) return
-            void setEquip(s, null)
-          }
-          right.appendChild(remove)
-        }
-      } else {
-        bb.textContent = 'Locked'
-        bb.classList.add('muted')
-
-        const label = el('div', 'muted mono')
-        label.textContent = 'LOCKED'
-        right.appendChild(label)
-      }
-
-      slotBox.append(hh, bb)
-      slotsGrid.appendChild(slotBox)
-    }
-
-    panel.ondragover = null
-    panel.ondrop = null
-
-    sb.appendChild(slotsGrid)
-
-    if (unlockedSlots < maxSlots) {
-      const cost = moduleSlotUnlockCostPoints(unlockedSlots, config)
-      const buy = btn(`Buy Slot (${formatPaladyumInt(cost)} Palladium)`, 'btn btn-primary')
-      buy.style.marginTop = '10px'
-      buy.onclick = () => {
-        void (async () => {
-          const doLocal = () => {
-            const ok = g.unlockModuleSlot()
-            if (!ok) return false
-            lastState = g.getSnapshot()
-            return true
-          }
-
-          if (shouldCloudSyncOnEquip()) {
-            try {
-              const ok = await withLoading(async () => {
-                const localOk = doLocal()
-                if (!localOk) return false
-                await persistMetaAfterLocalChange()
-                return true
-              })
-              if (!ok) flashFail(buy)
-              args.rerender()
-              return
-            } catch (e) {
-              alert(String((e as any)?.message ?? e))
-              lastState = g.getSnapshot()
-              args.rerender()
-              return
-            }
-          }
-
-          const ok = doLocal()
-          if (!ok) {
-            flashFail(buy)
-            return
-          }
-          await persistMetaAfterLocalChange()
-          args.rerender()
-        })()
-      }
-      sb.appendChild(buy)
-    }
-
-    slotsPanel.append(sh, sb)
-
-    // Filter row
-    const toolbar = el('div', 'ng-modules-toolbar')
-    const filters = el('div', 'ng-modules-filters')
-    const mkFilter = (label: string, f: typeof modulesFilter) => {
-      const b = btn(label, 'btn')
-      if (modulesFilter === f) b.classList.add('is-selected')
-      b.onclick = () => {
-        modulesFilter = f
-        modulesPage = 0
-        args.rerender()
-      }
-      return b
-    }
-    filters.append(mkFilter('All', 'ALL'), mkFilter('Offense', 'OFFENSE'), mkFilter('Defense', 'DEFENSE'), mkFilter('Utility', 'UTILITY'))
-
-    // Filter modules
-    const filtered = config.modules.defs.filter((d) => modulesFilter === 'ALL' || d.category === modulesFilter)
-    const totalPages = Math.max(1, Math.ceil(filtered.length / MODULES_PER_PAGE))
-    if (modulesPage >= totalPages) modulesPage = totalPages - 1
-    const pageItems = filtered.slice(modulesPage * MODULES_PER_PAGE, (modulesPage + 1) * MODULES_PER_PAGE)
-
-    const unlockedCount = Object.values(lastState.modulesUnlocked).filter(Boolean).length
-
-    const list = el('div', 'ng-modules-grid')
-
-    for (const def of pageItems) {
-      const card = el('div', 'panel ng-mod-card')
-      card.draggable = false
-      card.ondragstart = null
-      const ch = el('div', 'panel-header')
-      const name = el('div', 'ng-mod-name')
-      const label = el('div')
-      label.textContent = def.nameTR
-      name.append(moduleIcon(def), label)
-
-      const cat = el('div', 'muted mono')
-      cat.textContent = def.category
-      ch.append(name, cat)
-
-      const cb = el('div', 'panel-body ng-mod-card-body')
-
-      const effectText = moduleEffectText(def, Math.max(1, Math.floor(lastState!.moduleLevels[def.id] ?? 1)), config)
-      const effectList = renderEffectList(effectText)
-
-      const actions = el('div', 'ng-mod-actions')
-
-      const isUnlocked = !!lastState.modulesUnlocked[def.id]
-      if (!isUnlocked) {
-        const cost = moduleUnlockCostPoints(unlockedCount, config)
-        const b = btn(`Unlock (${formatPaladyumInt(cost)} Palladium)`, 'btn btn-primary')
-        b.onclick = () => {
-          void (async () => {
-            const doLocal = () => {
-              const ok = g.unlockModule(def.id)
-              if (!ok) return false
-              lastState = g.getSnapshot()
-              return true
-            }
-
-            if (shouldCloudSyncOnEquip()) {
-              try {
-                const ok = await withLoading(async () => {
-                  const localOk = doLocal()
-                  if (!localOk) return false
-                  await persistMetaAfterLocalChange()
-                  return true
-                })
-                if (!ok) flashFail(b)
-                args.rerender()
-                return
-              } catch (e) {
-                alert(String((e as any)?.message ?? e))
-                lastState = g.getSnapshot()
-                args.rerender()
-                return
-              }
-            }
-
-            const ok = doLocal()
-            if (!ok) {
-              flashFail(b)
-              return
-            }
-            await persistMetaAfterLocalChange()
-            args.rerender()
-          })()
-        }
-        const row = el('div', 'ng-mod-actions-row')
-        row.appendChild(b)
-        actions.appendChild(row)
-      } else {
-        const eqSlot = equippedById.get(def.id) ?? null
-        const add = btn(eqSlot ? `Equipped (S${eqSlot})` : 'Add', eqSlot ? 'btn ng-mod-add' : 'btn btn-primary ng-mod-add')
-        add.disabled = !!eqSlot
-        add.onclick = () => {
-          if (eqSlot) return
-          const slot = firstEmptyUnlockedSlot()
-          if (!slot) {
-            flashFail(add)
-            return
-          }
-          void (async () => {
-            const ok = await setEquip(slot, def.id)
-            if (!ok) flashFail(add)
-          })()
-        }
-
-        const level = Math.max(1, Math.floor(lastState.moduleLevels[def.id] ?? 1))
-        const cost = moduleUpgradeCostPoints(level, config)
-
-        const points = Math.max(0, Number((lastState as any)?.points ?? 0))
-        const canAffordModuleN = (n: number) => {
-          let total = 0
-          for (let i = 0; i < n; i++) {
-            total += moduleUpgradeCostPoints(level + i, config)
-            if (!Number.isFinite(total) || points < total) return false
-          }
-          return true
-        }
-
-        const b1 = btn('+1', 'btn')
-        b1.disabled = !canAffordModuleN(1)
-        b1.onclick = () => {
-          void (async () => {
-            const doLocal = () => {
-              const ok = g.upgradeModule(def.id, 1)
-              if (!ok) return false
-              lastState = g.getSnapshot()
-              return true
-            }
-
-            if (shouldCloudSyncOnEquip()) {
-              try {
-                const ok = await withLoading(async () => {
-                  const localOk = doLocal()
-                  if (!localOk) return false
-                  await persistMetaAfterLocalChange()
-                  return true
-                })
-                if (!ok) flashFail(b1)
-                args.rerender()
-                return
-              } catch (e) {
-                alert(String((e as any)?.message ?? e))
-                lastState = g.getSnapshot()
-                args.rerender()
-                return
-              }
-            }
-
-            const ok = doLocal()
-            if (!ok) {
-              flashFail(b1)
-              return
-            }
-            await persistMetaAfterLocalChange()
-            args.rerender()
-          })()
-        }
-        const b10 = btn('+10', 'btn')
-        b10.disabled = !canAffordModuleN(10)
-        b10.onclick = () => {
-          void (async () => {
-            const doLocal = () => {
-              const ok = g.upgradeModule(def.id, 10)
-              if (!ok) return false
-              lastState = g.getSnapshot()
-              return true
-            }
-
-            if (shouldCloudSyncOnEquip()) {
-              try {
-                const ok = await withLoading(async () => {
-                  const localOk = doLocal()
-                  if (!localOk) return false
-                  await persistMetaAfterLocalChange()
-                  return true
-                })
-                if (!ok) flashFail(b10)
-                args.rerender()
-                return
-              } catch (e) {
-                alert(String((e as any)?.message ?? e))
-                lastState = g.getSnapshot()
-                args.rerender()
-                return
-              }
-            }
-
-            const ok = doLocal()
-            if (!ok) {
-              flashFail(b10)
-              return
-            }
-            await persistMetaAfterLocalChange()
-            args.rerender()
-          })()
-        }
-        const bM = btn('+Max', 'btn')
-        bM.disabled = !canAffordModuleN(1)
-        bM.onclick = () => {
-          void (async () => {
-            const doLocal = () => {
-              const ok = g.upgradeModule(def.id, 'max')
-              if (!ok) return false
-              lastState = g.getSnapshot()
-              return true
-            }
-
-            if (shouldCloudSyncOnEquip()) {
-              try {
-                const ok = await withLoading(async () => {
-                  const localOk = doLocal()
-                  if (!localOk) return false
-                  await persistMetaAfterLocalChange()
-                  return true
-                })
-                if (!ok) flashFail(bM)
-                args.rerender()
-                return
-              } catch (e) {
-                alert(String((e as any)?.message ?? e))
-                lastState = g.getSnapshot()
-                args.rerender()
-                return
-              }
-            }
-
-            const ok = doLocal()
-            if (!ok) {
-              flashFail(bM)
-              return
-            }
-            await persistMetaAfterLocalChange()
-            args.rerender()
-          })()
-        }
-
-        const rowTop = el('div', 'ng-mod-actions-row')
-        rowTop.append(add, kv('Level', String(level), true), kv('+1 Cost', formatPaladyumInt(cost), true))
-
-        const rowUp = el('div', 'ng-mod-upgrade-row')
-        rowUp.append(b1, b10, bM)
-
-        actions.append(rowTop, rowUp)
-      }
-
-      cb.append(effectList, actions)
-      card.append(ch, cb)
-      list.appendChild(card)
-    }
-
-    // Pagination controls
-    const pager = el('div', 'hud-pager ng-modules-pager')
-    const prevBtn = btn('◀ Prev', 'btn')
-    prevBtn.onclick = () => { modulesPage = Math.max(0, modulesPage - 1); args.rerender() }
-    if (modulesPage === 0) prevBtn.disabled = true
-
-    const pageLabel = el('div', 'muted mono')
-    pageLabel.textContent = `${modulesPage + 1} / ${totalPages}`
-    pageLabel.style.fontSize = '13px'
-
-    const nextBtn = btn('Next ▶', 'btn')
-    nextBtn.onclick = () => { modulesPage = Math.min(totalPages - 1, modulesPage + 1); args.rerender() }
-    if (modulesPage >= totalPages - 1) nextBtn.disabled = true
-
-    pager.append(prevBtn, pageLabel, nextBtn)
-
-    toolbar.append(filters, pager)
-
-    layout.append(bal, slotsPanel, toolbar, list)
-    body.append(layout)
-    panel.append(header, body)
-    return panel
-  }
-
-  async function showModulesModal() {
-    if (!game || !lastState) return
-
-    const closeAndRefresh = () => {
-      overlay.remove()
-      render()
-    }
-
-    const panel = buildModulesPanel({
-      backLabel: 'Close',
-      onBack: () => closeAndRefresh(),
-      rerender: () => {
-        overlay.remove()
-        void showModulesModal()
-      },
-    })
-    panel.style.width = 'min(1240px, calc(100vw - 20px))'
-
-    const overlay = mountModal(panel)
-    overlay.addEventListener('pointerdown', (e) => {
-      if (e.target === overlay) closeAndRefresh()
-    })
-  }
-
-  function renderModules() {
-    if (!game || !lastState) return
-    const panel = buildModulesPanel({
-      backLabel: 'Back',
-      onBack: () => setScreen('menu'),
-      rerender: () => render(),
-    })
-    center.appendChild(panel)
-  }
-
-  function moduleEffectText(def: GameConfig['modules']['defs'][number], rawLevel: number, cfg: GameConfig): string {
-    const Lraw = typeof rawLevel === 'number' && Number.isFinite(rawLevel) ? Math.max(1, Math.floor(rawLevel)) : 1
-    const cap = typeof def.maxEffectiveLevel === 'number' && Number.isFinite(def.maxEffectiveLevel) ? Math.max(0, Math.floor(def.maxEffectiveLevel)) : Lraw
-    const L = Math.min(Lraw, cap)
-
-    const expRaw = (cfg.modules as any).levelExponent
-    const exp = typeof expRaw === 'number' && Number.isFinite(expRaw) ? clamp(expRaw, 0.35, 1.0) : 1.0
-    const effLevel = L > 0 ? Math.max(0, Math.pow(L, exp)) : 0
-
-    const parts: string[] = []
-    parts.push(`Lv ${Lraw}${Lraw > L ? ` (cap ${L})` : ''} • Eff Lv ${effLevel.toFixed(2)}`)
-    const pctFromFrac = (frac: number) => `${frac >= 0 ? '+' : ''}${(frac * 100).toFixed(1)}%`
-    const ppFromFrac = (frac: number) => `${frac >= 0 ? '+' : ''}${(frac * 100).toFixed(1)}pp`
-    const n1 = (v: number) => {
-      const vv = Math.abs(v) < 1e-9 ? 0 : v
-      const i = Math.round(vv)
-      return Math.abs(vv - i) < 1e-6 ? String(i) : vv.toFixed(1)
-    }
-
-    if (def.dmgMultPerLevel) parts.push(`Damage: ${pctFromFrac(def.dmgMultPerLevel * effLevel)}`)
-    if (def.dmgFlatPerLevel) parts.push(`Flat Damage: ${def.dmgFlatPerLevel * effLevel >= 0 ? '+' : ''}${n1(def.dmgFlatPerLevel * effLevel)}`)
-    if (def.fireRateBonusPerLevel) parts.push(`Fire Rate: ${pctFromFrac(def.fireRateBonusPerLevel * effLevel)}`)
-    if (def.rangeBonusPerLevel) parts.push(`Range: ${def.rangeBonusPerLevel * effLevel >= 0 ? '+' : ''}${n1(def.rangeBonusPerLevel * effLevel)}`)
-    if (def.armorPiercePerLevel) parts.push(`Armor Pierce: ${pctFromFrac(def.armorPiercePerLevel * effLevel)}`)
-    if (def.baseHPBonusPerLevel) parts.push(`Base HP: ${def.baseHPBonusPerLevel * effLevel >= 0 ? '+' : ''}${n1(def.baseHPBonusPerLevel * effLevel)}`)
-    if (def.baseHPMultPerLevel) parts.push(`Max HP Mult: ${pctFromFrac(def.baseHPMultPerLevel * effLevel)}`)
-    if (def.goldMultPerLevel) parts.push(`Gold Mult: ${pctFromFrac(def.goldMultPerLevel * effLevel)}`)
-
-    if (def.pointsMultPerLevel) parts.push(`Palladium Mult: ${pctFromFrac(def.pointsMultPerLevel * effLevel)}`)
-
-    if (def.thresholdAddPerLevel) parts.push(`KR Target: ${ppFromFrac(def.thresholdAddPerLevel * effLevel)}`)
-    if (def.penKMultPerLevel) parts.push(`Penalty K: ${pctFromFrac(def.penKMultPerLevel * effLevel)}`)
-    if (def.penMinAddPerLevel) parts.push(`Penalty Min: ${ppFromFrac(def.penMinAddPerLevel * effLevel)}`)
-    if (def.spawnCountMultPerLevel) parts.push(`Spawn Count: ${pctFromFrac(def.spawnCountMultPerLevel * effLevel)}`)
-    if (def.enemyHpMultPerLevel) parts.push(`Enemy HP: ${pctFromFrac(def.enemyHpMultPerLevel * effLevel)}`)
-    if (def.enemyArmorMultPerLevel) parts.push(`Enemy Armor: ${pctFromFrac(def.enemyArmorMultPerLevel * effLevel)}`)
-
-    if (def.shotCountPerLevel) {
-      const add = Math.floor(def.shotCountPerLevel * effLevel)
-      const capTxt = typeof def.shotCountCap === 'number' && Number.isFinite(def.shotCountCap) ? ` (cap ${Math.max(1, Math.floor(def.shotCountCap))})` : ''
-      parts.push(`Ability: Multi-shot (+${Math.max(0, add)} shots)${capTxt}`)
-    }
-    if (def.invulnDurationSecPerLevel && def.invulnCooldownSec) {
-      const dur = Math.max(0, def.invulnDurationSecPerLevel * effLevel)
-      parts.push(`Ability: Invuln vs escapes (${dur.toFixed(2)}s, every ${Math.max(0.1, def.invulnCooldownSec)}s)`)
-    }
-
-    if (def.critEveryN && def.critMultPerLevel) {
-      const n = Math.max(2, Math.floor(def.critEveryN))
-      const mult = Math.max(0, def.critMultPerLevel * effLevel)
-      parts.push(`Ability: Crit (every ${n} shots, +${(mult * 100).toFixed(1)}% mult)`)
-    }
-
-    if (def.enemySpeedMultPerLevel) {
-      const delta = def.enemySpeedMultPerLevel * effLevel
-      parts.push(`Ability: Enemy Speed ${pctFromFrac(delta)}`)
-    }
-
-    if (typeof def.maxEffectiveLevel === 'number' && Number.isFinite(def.maxEffectiveLevel)) {
-      const capN = Math.max(0, Math.floor(def.maxEffectiveLevel))
-      parts.push(`Balance cap: effective Lv ≤ ${capN}${Lraw > capN ? ` (using Lv ${L})` : ''}`)
-    }
-
-    return parts.length ? parts.join(' • ') : 'Effect: (not defined)'
-  }
-
-  function moduleIcon(def: GameConfig['modules']['defs'][number]): HTMLSpanElement {
-    const icon = el('span', 'ng-mod-icon')
-    if (def.category === 'OFFENSE') {
-      icon.classList.add('ng-mod-icon-offense')
-      icon.textContent = '▲'
-    } else if (def.category === 'DEFENSE') {
-      icon.classList.add('ng-mod-icon-defense')
-      icon.textContent = '■'
-    } else {
-      icon.classList.add('ng-mod-icon-utility')
-      icon.textContent = '◆'
-    }
-
-    const concept = (def as any).iconConcept
-    icon.title = concept ? `${def.category}: ${String(concept)}` : def.category
-    return icon
   }
 
   function renderSettings() {
@@ -2704,8 +1909,8 @@ export function createUIStateMachine(args: UIArgs) {
       <div class="muted">
         <div style="font-weight:900; margin-bottom:6px">Economy: Gold & Palladium</div>
         <div>• <b>Gold</b>: used for in-run upgrades (damage, fire rate, range, etc.).</div>
-        <div>• <b>Palladium</b>: permanent meta currency (Meta Upgrades, modules, slot unlocks).</div>
-        <div>• Palladium is granted deterministically at wave end (affected by your performance and modules).</div>
+        <div>• <b>Palladium</b>: permanent meta currency (Meta Upgrades, Skills, Lab).</div>
+        <div>• Palladium is granted deterministically at wave end (affected by your performance).</div>
       </div>
 
       <div style="height:10px"></div>
@@ -2717,15 +1922,6 @@ export function createUIStateMachine(args: UIArgs) {
         <div>• <b>Range</b>: lets you engage earlier.</div>
         <div>• <b>Base HP / Repair / Fortify</b>: improves survivability.</div>
         <div>• <b>Crit / MultiShot</b>: more explosive damage profile (deterministic crit).</div>
-      </div>
-
-      <div style="height:10px"></div>
-
-      <div class="muted">
-        <div style="font-weight:900; margin-bottom:6px">Modules</div>
-        <div>Modules are the core of build-making. Offense/Defense/Utility modules change how your tower behaves.</div>
-        <div>• Modules are not random drops; you unlock them with Palladium and upgrade their levels.</div>
-        <div>• Slot count is limited; you unlock more slots as you progress.</div>
       </div>
 
       <div style="height:10px"></div>
@@ -2744,7 +1940,7 @@ export function createUIStateMachine(args: UIArgs) {
 
       <div class="muted">
         <div style="font-weight:900; margin-bottom:6px">What Does Deterministic (No RNG) Mean?</div>
-        <div>With the same wave, the same upgrades, the same modules, and the same settings, the game produces the same outcomes.</div>
+        <div>With the same wave, the same upgrades, and the same settings, the game produces the same outcomes.</div>
         <div>This makes balance and build experiments easier to read: decisions matter more than luck.</div>
       </div>
 
@@ -2974,7 +2170,7 @@ export function createUIStateMachine(args: UIArgs) {
       scheduled = true
       requestAnimationFrame(() => {
         scheduled = false
-        if (screen === 'hud' || screen === 'modules' || screen === 'settings' || screen === 'stats') {
+        if (screen === 'hud' || screen === 'settings' || screen === 'stats') {
           render()
         }
       })
