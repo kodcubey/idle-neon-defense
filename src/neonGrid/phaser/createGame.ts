@@ -6,6 +6,7 @@ import {
   applyTowerMetaUpgrade,
   applyTowerUpgrade,
   boostLabResearch,
+  equipSkillCard,
   equipModule,
   finalizeLab,
   respecSkills,
@@ -48,6 +49,8 @@ export type NeonGridGame = {
 
   buySkill: (id: SkillId) => { ok: boolean; reason?: string }
   respecSkills: () => { ok: boolean; cost: number }
+
+  equipSkillCard: (slot: 1 | 2 | 3, id: string | null) => boolean
 
   // Lab research (persistent progression)
   finalizeLabs: () => boolean
@@ -243,6 +246,9 @@ export function createGame(args: {
       // Skills persist across runs.
       s.skills = structuredClone(prev.skills)
 
+      // Skill Cards persist across runs.
+      ;(s as any).skillCardsEquipped = structuredClone((prev as any).skillCardsEquipped)
+
       // Lab persists across runs.
       ;(s as any).lab = structuredClone((prev as any).lab)
 
@@ -253,6 +259,14 @@ export function createGame(args: {
       applyState(s, 'hard')
       pendingPaused = false
       if (engine) engine.setPaused(false)
+    },
+
+    equipSkillCard: (slot, id) => {
+      const s = currentState()
+      const next = equipSkillCard({ state: s, slot, id })
+      if (!next.ok) return false
+      applyState(next.state, 'soft')
+      return true
     },
 
     buySkill: (id) => {

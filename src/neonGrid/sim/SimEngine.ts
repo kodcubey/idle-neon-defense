@@ -1,4 +1,4 @@
-import type { GameConfig, GameState, RunSummary, WaveReport, WaveSnapshot } from '../types'
+import type { GameConfig, GameState, RunSummary, SkillCardId, WaveReport, WaveSnapshot } from '../types'
 import {
   aggregateModules,
   baseDmg,
@@ -20,7 +20,19 @@ import {
 import { calcBaseHPMax } from './actions'
 import { aggregateSkillPassives, calcWaveXpGain, getSkillRank, xpToNext } from '../skills/skills'
 import { labEffectMult } from '../labs/labs'
+import { getEquippedSkillCards } from '../skills/skillCards.ts'
 import type { Vec2 } from './path'
+
+export type CardFx =
+  | { id: number; kind: 'LIGHTNING_ARC'; x0: number; y0: number; x1: number; y1: number }
+  | { id: number; kind: 'RICOCHET'; x0: number; y0: number; x1: number; y1: number }
+  | { id: number; kind: 'MINE_BLAST'; x: number; y: number; r: number }
+  | { id: number; kind: 'FREEZE_PULSE'; x: number; y: number; r: number }
+  | { id: number; kind: 'WALL_PULSE'; x: number; y: number; r: number }
+
+type CardFxEvent = CardFx extends infer U ? (U extends any ? Omit<U, 'id'> : never) : never
+
+export type ProjectileKind = 'BOLT' | 'UZI' | 'DRONE'
 
 export type EnemyEntity = {
   id: number
@@ -37,6 +49,8 @@ export type EnemyEntity = {
   vy: number
   spawnedAtSec: number
   alive: boolean
+  slowUntilSec?: number
+  slowMult?: number
 }
 
 export type ProjectileEntity = {
@@ -47,6 +61,8 @@ export type ProjectileEntity = {
   targetEnemyId: number
   damageMult: number
   alive: boolean
+  kind: ProjectileKind
+  bouncesLeft: number
 }
 
 export type SimPublic = {
@@ -60,6 +76,7 @@ export type SimPublic = {
   paused: boolean
   enemies: ReadonlyArray<EnemyEntity>
   projectiles: ReadonlyArray<ProjectileEntity>
+  cardFx?: ReadonlyArray<CardFx>
   skillsRuntime?: {
     comboStacks: number
     adrenalActive: boolean
@@ -141,6 +158,16 @@ export class SimEngine {
 
   private invulnRemainingSec = 0
   private invulnCooldownRemainingSec = 0
+
+  // --- Skill Cards runtime (deterministic; no RNG) ---
+  private cardFx: CardFx[] = []
+  private nextCardFxId = 1
+  private lightningCooldown = 0
+  private laserTickCooldown = 0
+  private swordTickCooldown = 0
+  private wallPulseCooldown = 0
+  private freezePulseCooldown = 0
+  private mineCooldown = 0
 
   // --- Skills runtime (deterministic; no RNG) ---
   private comboStacks = 0
@@ -270,6 +297,7 @@ export class SimEngine {
       paused: this.paused,
       enemies: this.enemies,
       projectiles: this.projectiles,
+      cardFx: this.cardFx,
       skillsRuntime: {
         comboStacks: this.comboStacks,
         adrenalActive: this.adrenalRemainingSec > 0,
@@ -417,7 +445,18 @@ export class SimEngine {
   tick(dtSec: number) {
     if (this.paused) return
 
+    // Clear per-tick FX events.
+    this.cardFx.length = 0
+
     const scaled = dtSec * this.timeScale
+
+    // Skill Cards cooldowns (deterministic; time-based).
+    this.lightningCooldown = Math.max(0, this.lightningCooldown - scaled)
+    this.laserTickCooldown = Math.max(0, this.laserTickCooldown - scaled)
+    this.swordTickCooldown = Math.max(0, this.swordTickCooldown - scaled)
+    this.wallPulseCooldown = Math.max(0, this.wallPulseCooldown - scaled)
+    this.freezePulseCooldown = Math.max(0, this.freezePulseCooldown - scaled)
+    this.mineCooldown = Math.max(0, this.mineCooldown - scaled)
 
     // Utility abilities (deterministic; time-based).
     this.invulnRemainingSec = Math.max(0, this.invulnRemainingSec - scaled)
@@ -445,6 +484,10 @@ export class SimEngine {
       this.cb.onStateChanged(this._state)
       return
     }
+
+    // Skill Cards (deterministic) - apply non-projectile effects.
+    this.stepSkillCards()
+
     this.stepTower(scaled)
     this.stepProjectiles(scaled)
 
@@ -468,6 +511,15 @@ export class SimEngine {
     this.towerCooldown = 0
     this.invulnRemainingSec = 0
     this.invulnCooldownRemainingSec = 0
+
+    this.cardFx = []
+    this.nextCardFxId = 1
+    this.lightningCooldown = 0
+    this.laserTickCooldown = 0
+    this.swordTickCooldown = 0
+    this.wallPulseCooldown = 0
+    this.freezePulseCooldown = 0
+    this.mineCooldown = 0
 
     this.comboStacks = 0
     this.adrenalRemainingSec = 0
@@ -493,6 +545,11 @@ export class SimEngine {
     const perEscape = this.cfg.progression.escapeDamage * (1 + this.cfg.progression.deficitBoost * deficit * deficitBoostMult)
     const afterFortify = perEscape * towerEscapeDamageMult(this._state, this.cfg, this.getSkillsCached())
     let dmg = Math.max(0, afterFortify * count)
+
+    // Skill Card: Shield Dome reduces escape damage.
+    if (this.hasCard('SC_SHIELD_DOME')) {
+      dmg *= 0.75
+    }
 
     // Aegis Protocol: blocks escape hits (first full, second partial if Aegis Reserve).
     if (getSkillRank(this._state, 'DF_AEGIS_PROTOCOL') > 0 && this.aegisCharge > 0) {
@@ -624,8 +681,11 @@ export class SimEngine {
     for (const e of this.enemies) {
       if (!e.alive) continue
 
-      e.x += e.vx * dtSec * speedMult
-      e.y += e.vy * dtSec * speedMult
+      const slowed = typeof e.slowUntilSec === 'number' && this.waveTimeSec <= e.slowUntilSec
+      const slowMult = slowed ? clamp(e.slowMult ?? 1, 0.1, 1) : 1
+
+      e.x += e.vx * dtSec * speedMult * slowMult
+      e.y += e.vy * dtSec * speedMult * slowMult
 
       const dx = e.x - this.arena.center.x
       const dy = e.y - this.arena.center.y
@@ -671,22 +731,48 @@ export class SimEngine {
           damageMult = crit.mult
         }
       }
-      this.spawnProjectile(t.id, damageMult)
+      const bounces = this.hasCard('SC_RICOCHET') ? 1 : 0
+      this.spawnProjectile(t.id, damageMult, 'BOLT', undefined, bounces)
+
+      // Skill Card: UZI Spray - extra lighter shots.
+      if (this.hasCard('SC_UZI_SPRAY')) {
+        this.spawnProjectile(t.id, damageMult * 0.42, 'UZI', 1120, 0)
+      }
+    }
+
+    // Skill Card: Drone Gunner - extra shot from an orbiting emitter.
+    if (this.hasCard('SC_DRONE_GUNNER') && targets.length > 0) {
+      const a = this.waveTimeSec * 2.1 + this.towerShotCounter * 0.23
+      const ox = Math.cos(a) * 44
+      const oy = Math.sin(a) * 44
+      const origin = { x: this.towerPos.x + ox, y: this.towerPos.y + oy }
+      const mainTarget = targets[0]
+      const bounces = this.hasCard('SC_RICOCHET') ? 1 : 0
+      this.spawnProjectile(mainTarget.id, 0.55, 'DRONE', 980, bounces, origin)
     }
 
     this.towerCooldown = cd
   }
 
-  private spawnProjectile(targetEnemyId: number, damageMult: number) {
-    const speed = 920
+  private spawnProjectile(
+    targetEnemyId: number,
+    damageMult: number,
+    kind: ProjectileKind,
+    speedOverride?: number,
+    bouncesLeft: number = 0,
+    origin?: { x: number; y: number },
+  ) {
+    const speed = Math.max(1, speedOverride ?? 920)
     this.projectiles.push({
       id: this.nextProjectileId++,
-      x: this.towerPos.x,
-      y: this.towerPos.y,
+      x: origin ? origin.x : this.towerPos.x,
+      y: origin ? origin.y : this.towerPos.y,
       speed,
       targetEnemyId,
       damageMult: Math.max(0.1, damageMult),
       alive: true,
+      kind,
+      bouncesLeft: Math.max(0, Math.floor(bouncesLeft)),
     })
 
     if (this.projectiles.length > 600) {
@@ -720,14 +806,17 @@ export class SimEngine {
 
       if (dist <= hitR) {
         const dmg = this.computeDamage(pub, target, p)
-        target.hp -= dmg
-        if (target.hp <= 0 && target.alive) {
-          target.alive = false
-
-          this.killed++
-          this._state.stats.totalKills++
-        }
+        this.applyDamageToEnemy(target, dmg)
         p.alive = false
+
+        // Skill Card: Ricochet - bounce to a nearby second target.
+        if (p.bouncesLeft > 0) {
+          const bounceTarget = this.pickNearestEnemyExcluding(target.id, target.x, target.y, enemyMap, 220)
+          if (bounceTarget) {
+            this.emitCardFx({ kind: 'RICOCHET', x0: target.x, y0: target.y, x1: bounceTarget.x, y1: bounceTarget.y })
+            this.spawnProjectile(bounceTarget.id, p.damageMult * 0.7, p.kind, p.speed, p.bouncesLeft - 1, { x: target.x, y: target.y })
+          }
+        }
 
         // Combo Momentum: increment stacks on hits.
         const comboRank = getSkillRank(this._state, 'AT_COMBO_MOMENTUM')
@@ -746,6 +835,169 @@ export class SimEngine {
     }
 
     if (this.projectiles.length > 900) this.projectiles = this.projectiles.filter((p) => p.alive)
+  }
+
+  private stepSkillCards() {
+    const cards = getEquippedSkillCards(this._state)
+    if (cards.length === 0) return
+
+    const pub = this.getPublic()
+    const lead = this.pickTargets(pub, 1)[0]
+
+    // Lightning Arc: periodic zap + chain.
+    if (this.hasCard('SC_LIGHTNING_ARC') && lead && this.lightningCooldown <= 0) {
+      this.lightningCooldown = 1.35
+      const zapDmg = this.computeDamage(pub, lead, {
+        id: -1,
+        x: pub.tower.pos.x,
+        y: pub.tower.pos.y,
+        speed: 0,
+        targetEnemyId: lead.id,
+        damageMult: 0.55,
+        alive: false,
+        kind: 'BOLT',
+        bouncesLeft: 0,
+      })
+      this.applyDamageToEnemy(lead, zapDmg)
+      this.emitCardFx({ kind: 'LIGHTNING_ARC', x0: pub.tower.pos.x, y0: pub.tower.pos.y, x1: lead.x, y1: lead.y })
+
+      const enemyMap = new Map<number, EnemyEntity>()
+      for (const e of this.enemies) if (e.alive) enemyMap.set(e.id, e)
+      const chained = this.pickNearestEnemyExcluding(lead.id, lead.x, lead.y, enemyMap, 210)
+      if (chained) {
+        this.applyDamageToEnemy(chained, Math.max(1, zapDmg * 0.42))
+        this.emitCardFx({ kind: 'LIGHTNING_ARC', x0: lead.x, y0: lead.y, x1: chained.x, y1: chained.y })
+      }
+    }
+
+    // Laser Beam: frequent low-mult ticks to the lead target.
+    if (this.hasCard('SC_LASER_BEAM') && lead && this.laserTickCooldown <= 0) {
+      this.laserTickCooldown = 0.18
+      const beamDmg = this.computeDamage(pub, lead, {
+        id: -2,
+        x: pub.tower.pos.x,
+        y: pub.tower.pos.y,
+        speed: 0,
+        targetEnemyId: lead.id,
+        damageMult: 0.16,
+        alive: false,
+        kind: 'BOLT',
+        bouncesLeft: 0,
+      })
+      this.applyDamageToEnemy(lead, beamDmg)
+    }
+
+    // Orbiting Sword: periodic close-range slashes.
+    if (this.hasCard('SC_SPIN_SWORD') && this.swordTickCooldown <= 0) {
+      this.swordTickCooldown = 0.32
+      const r = 88
+      const r2 = r * r
+      for (const e of this.enemies) {
+        if (!e.alive) continue
+        const dx = e.x - pub.tower.pos.x
+        const dy = e.y - pub.tower.pos.y
+        if (dx * dx + dy * dy > r2) continue
+        const dmg = Math.max(1, pub.tower.damagePerShot * 0.18)
+        this.applyDamageToEnemy(e, dmg)
+      }
+    }
+
+    // Wall Field: periodic ring pulse (damage + micro-slow near the ring).
+    if (this.hasCard('SC_WALL_FIELD') && this.wallPulseCooldown <= 0) {
+      this.wallPulseCooldown = 3.0
+      const ringR = clamp(pub.tower.range * 0.65, 40, pub.tower.range)
+      this.emitCardFx({ kind: 'WALL_PULSE', x: pub.tower.pos.x, y: pub.tower.pos.y, r: ringR })
+      for (const e of this.enemies) {
+        if (!e.alive) continue
+        const dx = e.x - pub.tower.pos.x
+        const dy = e.y - pub.tower.pos.y
+        const d = Math.hypot(dx, dy)
+        if (Math.abs(d - ringR) > 16) continue
+        this.applySlow(e, 0.35, 0.75)
+        this.applyDamageToEnemy(e, Math.max(1, pub.tower.damagePerShot * 0.12))
+      }
+    }
+
+    // Freeze Pulse: big slow ring.
+    if (this.hasCard('SC_FREEZE_PULSE') && this.freezePulseCooldown <= 0) {
+      this.freezePulseCooldown = 4.4
+      const r = clamp(pub.tower.range * 0.85, 120, pub.tower.range)
+      this.emitCardFx({ kind: 'FREEZE_PULSE', x: pub.tower.pos.x, y: pub.tower.pos.y, r })
+      const r2 = r * r
+      for (const e of this.enemies) {
+        if (!e.alive) continue
+        const dx = e.x - pub.tower.pos.x
+        const dy = e.y - pub.tower.pos.y
+        if (dx * dx + dy * dy > r2) continue
+        this.applySlow(e, 0.45, 1.25)
+      }
+    }
+
+    // Mine Grid: periodic AoE on the lead enemy.
+    if (this.hasCard('SC_MINE_GRID') && lead && this.mineCooldown <= 0) {
+      this.mineCooldown = 2.35
+      const r = 92
+      this.emitCardFx({ kind: 'MINE_BLAST', x: lead.x, y: lead.y, r })
+      const r2 = r * r
+      for (const e of this.enemies) {
+        if (!e.alive) continue
+        const dx = e.x - lead.x
+        const dy = e.y - lead.y
+        if (dx * dx + dy * dy > r2) continue
+        this.applyDamageToEnemy(e, Math.max(1, pub.tower.damagePerShot * 0.22))
+      }
+    }
+  }
+
+  private hasCard(id: SkillCardId): boolean {
+    // Kept as a small helper so card logic stays readable.
+    const cards = (this._state as any).skillCardsEquipped
+    if (!cards) return false
+    return cards[1] === id || cards[2] === id || cards[3] === id
+  }
+
+  private emitCardFx(fx: CardFxEvent) {
+    this.cardFx.push({ id: this.nextCardFxId++, ...(fx as any) } as CardFx)
+  }
+
+  private applySlow(e: EnemyEntity, mult: number, durSec: number) {
+    const until = this.waveTimeSec + Math.max(0, durSec)
+    e.slowUntilSec = Math.max(e.slowUntilSec ?? 0, until)
+    const next = clamp(mult, 0.1, 1)
+    e.slowMult = typeof e.slowMult === 'number' ? Math.min(e.slowMult, next) : next
+  }
+
+  private applyDamageToEnemy(e: EnemyEntity, dmg: number) {
+    e.hp -= dmg
+    if (e.hp <= 0 && e.alive) {
+      e.alive = false
+      this.killed++
+      this._state.stats.totalKills++
+    }
+  }
+
+  private pickNearestEnemyExcluding(
+    excludeId: number,
+    x: number,
+    y: number,
+    enemyMap: Map<number, EnemyEntity>,
+    maxDist: number,
+  ): EnemyEntity | undefined {
+    let best: EnemyEntity | undefined = undefined
+    let bestD2 = maxDist * maxDist
+    for (const e of enemyMap.values()) {
+      if (!e.alive) continue
+      if (e.id === excludeId) continue
+      const dx = e.x - x
+      const dy = e.y - y
+      const d2 = dx * dx + dy * dy
+      if (d2 > bestD2) continue
+      if (!best || d2 < bestD2 || (d2 === bestD2 && e.id < best.id)) {
+        best = e
+        bestD2 = d2
+      }
+    }
+    return best
   }
 
   private pickTargets(pub: SimPublic, count: number): EnemyEntity[] {

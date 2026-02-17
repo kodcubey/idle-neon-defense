@@ -2,6 +2,7 @@ import type { GameConfig, GameState, Settings, Stats } from '../types'
 import { exportEncryptedSaveString, importEncryptedSaveFile } from './encryptedSaveFile'
 import { defaultSkillState } from '../skills/skills'
 import { defaultLabState, finalizeResearchIfComplete, sanitizeLabState } from '../labs/labs'
+import { isSkillCardId } from '../skills/skillCards.ts'
 
 const LOCAL_SAVE_KEY = 'neon-grid:local-save:v1'
 
@@ -82,6 +83,8 @@ export function createNewState(config: GameConfig, nowUTC: number): GameState {
     modulesEquipped,
     moduleLevels,
     moduleSlotsUnlocked: 1,
+
+    skillCardsEquipped: { 1: null, 2: null, 3: null },
     prestigePoints: 0,
     settings: defaultSettings(),
     stats: defaultStats(),
@@ -175,6 +178,24 @@ export function rehydrateImportedState(config: GameConfig, input: GameState, now
   if (!merged.modulesUnlocked || typeof merged.modulesUnlocked !== 'object') merged.modulesUnlocked = {}
   if (!merged.moduleLevels || typeof merged.moduleLevels !== 'object') merged.moduleLevels = {}
   if (!merged.modulesEquipped || typeof merged.modulesEquipped !== 'object') merged.modulesEquipped = {}
+
+  // Skill Cards: ensure 3 slots exist and contain only known IDs.
+  if (!(merged as any).skillCardsEquipped || typeof (merged as any).skillCardsEquipped !== 'object') {
+    ;(merged as any).skillCardsEquipped = { 1: null, 2: null, 3: null }
+  }
+  const eq = (merged as any).skillCardsEquipped as Record<number, any>
+  for (const slot of [1, 2, 3] as const) {
+    const id = eq[slot]
+    eq[slot] = isSkillCardId(id) ? id : null
+  }
+  // Deduplicate (a card can only be in one slot).
+  const seen = new Set<string>()
+  for (const slot of [1, 2, 3] as const) {
+    const id = eq[slot]
+    if (!id) continue
+    if (seen.has(id)) eq[slot] = null
+    else seen.add(id)
+  }
 
   // Ensure module maps contain all defs.
   for (const def of config.modules.defs) {
@@ -279,6 +300,8 @@ export function buildSaveSnapshot(config: GameConfig, state: GameState, nowUTC: 
     moduleLevels: { ...state.moduleLevels },
     moduleSlotsUnlocked: state.moduleSlotsUnlocked,
 
+    skillCardsEquipped: { ...(state as any).skillCardsEquipped },
+
     prestigePoints: typeof state.prestigePoints === 'number' && Number.isFinite(state.prestigePoints) ? Math.max(0, Math.floor(state.prestigePoints)) : 0,
     settings: { ...state.settings },
     stats: { ...state.stats },
@@ -293,7 +316,6 @@ export function buildSaveSnapshot(config: GameConfig, state: GameState, nowUTC: 
       ...(state.lab as any),
       research: state.lab?.research ? { ...(state.lab.research as any) } : null,
     },
-
   }
 }
 

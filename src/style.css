@@ -306,6 +306,96 @@ body { overflow: hidden; }
   opacity: 0.9;
 }
 
+/* Skill tree list (non-card) */
+.ng-skill-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ng-skill-list-tier {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: rgba(12, 16, 36, 0.26);
+  overflow: hidden;
+}
+
+.ng-skill-list-tier-header {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 900;
+  letter-spacing: 0.03em;
+}
+
+.ng-skill-list-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.ng-skill-row {
+  display: grid;
+  grid-template-columns: 40px 1fr auto;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ng-skill-row:last-child {
+  border-bottom: none;
+}
+
+.ng-skill-row.active {
+  background: rgba(0, 229, 255, 0.03);
+}
+
+.ng-skill-row.locked {
+  opacity: 0.62;
+}
+
+.ng-skill-row.maxed {
+  background: rgba(168, 255, 0, 0.02);
+}
+
+.ng-skill-row-left {
+  display: flex;
+  align-items: flex-start;
+  padding-top: 2px;
+}
+
+.ng-skill-row-mid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ng-skill-row-name {
+  font-weight: 900;
+  font-size: 13px;
+}
+
+.ng-skill-row-desc {
+  font-size: 12px;
+}
+
+.ng-skill-row-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.ng-skill-row-rank {
+  font-size: 12px;
+  opacity: 0.95;
+}
+
+.ng-skill-row-lock {
+  font-size: 14px;
+  opacity: 0.9;
+}
+
 /* ---------- Row / Stack ------------------------------------------------- */
 .row {
   display: flex;

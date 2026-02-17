@@ -287,6 +287,20 @@ export type SkillsState = {
   }
 }
 
+export type SkillCardSlot = 1 | 2 | 3
+
+export type SkillCardId =
+  | 'SC_LIGHTNING_ARC'
+  | 'SC_UZI_SPRAY'
+  | 'SC_SPIN_SWORD'
+  | 'SC_WALL_FIELD'
+  | 'SC_LASER_BEAM'
+  | 'SC_MINE_GRID'
+  | 'SC_FREEZE_PULSE'
+  | 'SC_DRONE_GUNNER'
+  | 'SC_RICOCHET'
+  | 'SC_SHIELD_DOME'
+
 export type LabResearch = {
   key: TowerUpgradeKey
   startedAtUTC: number
@@ -356,6 +370,9 @@ export type GameState = {
 
   // Skills progression (persistent).
   skills: SkillsState
+
+  // Skill Cards (equippable visuals / combat modifiers). Max 3 slots.
+  skillCardsEquipped: Record<SkillCardSlot, SkillCardId | null>
 
   // Lab progression (persistent): increases per-level effects for tower upgrades.
   lab: LabState

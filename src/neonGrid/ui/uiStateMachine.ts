@@ -42,6 +42,7 @@ import {
   type SkillBranch,
   type SkillId,
 } from '../skills/skills'
+import { SKILL_CARDS } from '../skills/skillCards.ts'
 
 export type UIScreen = 'boot' | 'menu' | 'hud' | 'settings' | 'stats' | 'offline'
 
@@ -613,6 +614,14 @@ export function createUIStateMachine(args: UIArgs) {
       })()
     }
 
+    const skillCardsBtn = menuBtn('Skill Cards', iconSkills, 'cyan')
+    skillCardsBtn.onclick = () => {
+      void (async () => {
+        if (game) game.setPaused(true)
+        await showSkillCardsModal()
+      })()
+    }
+
     const labBtn = menuBtn('Lab', iconLab, 'lime')
     labBtn.onclick = () => {
       void (async () => {
@@ -651,7 +660,7 @@ export function createUIStateMachine(args: UIArgs) {
       void showMetaUpgradesModal()
     }
 
-    row.append(newRun, metaUpg, skills, labBtn, tower, stats, settings, how)
+    row.append(newRun, metaUpg, skills, skillCardsBtn, labBtn, tower, stats, settings, how)
 
     body.append(infoRow, row)
 
@@ -1154,18 +1163,20 @@ export function createUIStateMachine(args: UIArgs) {
     info.textContent = `Branch progress: ${spentInBranch} skills • Tier unlocks at 2 / 4 / 6 skills in the same branch • Tier 1 cap: ${tier1Unlocked}/${TIER1_MAX_UNLOCKS_PER_BRANCH}.`
     b.appendChild(info)
 
-    const grid = el('div', 'ng-skills-grid')
+    // Skill tree: render as a clean list (no card tiles).
+    const listWrap = el('div', 'ng-skill-list')
     const branchSkills = SKILLS.filter((s) => s.branch === branch)
     const tiers: Array<1 | 2 | 3 | 4> = [1, 2, 3, 4]
     for (const tier of tiers) {
-      const section = el('div', 'ng-skill-tier')
-      const sh = el('div', 'ng-skill-tier-header')
+      const tierBlock = el('div', 'ng-skill-list-tier')
+
+      const sh = el('div', 'ng-skill-list-tier-header')
       const need = tierRequirementCount(tier)
       const unlocked = spentInBranch >= need
       sh.innerHTML = `Tier ${tier} <span class="muted" style="font-weight:600">${tier === 1 ? '(Start)' : unlocked ? '(Unlocked)' : `(Locked: ${need} skills required)`}</span>`
-      section.appendChild(sh)
+      tierBlock.appendChild(sh)
 
-      const row = el('div', 'ng-skill-tier-row')
+      const tierList = el('div', 'ng-skill-list-rows')
       const list = branchSkills.filter((s) => s.tier === tier)
       for (const def of list) {
         const rankRaw = state.skills?.nodes?.[def.id]
@@ -1186,27 +1197,26 @@ export function createUIStateMachine(args: UIArgs) {
         const t1CapOk = def.tier !== 1 || rank > 0 || tier1Unlocked < TIER1_MAX_UNLOCKS_PER_BRANCH
         const locked = !tierOk || !prereqOk || !t1CapOk
 
-        const card = el('div', 'ng-skill-node' + (rank > 0 ? ' active' : '') + (locked ? ' locked' : '') + (isMax ? ' maxed' : ''))
-        const head = el('div', 'ng-skill-node-head')
+        const row = el('div', 'ng-skill-row' + (rank > 0 ? ' active' : '') + (locked ? ' locked' : '') + (isMax ? ' maxed' : ''))
+        const left = el('div', 'ng-skill-row-left')
         const ic = el('div', 'ng-skill-icon')
         ic.innerHTML = def.icon
-        const nm = el('div', 'ng-skill-name')
-        nm.textContent = def.name
-        head.append(ic, nm)
+        left.appendChild(ic)
 
-        const desc = el('div', 'muted ng-skill-desc')
+        const mid = el('div', 'ng-skill-row-mid')
+        const nameLine = el('div', 'ng-skill-row-name')
+        nameLine.textContent = def.name
+        const desc = el('div', 'muted ng-skill-row-desc')
         desc.textContent = def.description
 
         if (!t1CapOk) {
           const capLine = el('div', 'muted')
-          capLine.style.marginTop = '6px'
           capLine.textContent = `Tier 1 cap reached for this branch (${TIER1_MAX_UNLOCKS_PER_BRANCH}).`
           desc.appendChild(capLine)
         }
 
         if (!prereqOk) {
           const reqLine = el('div', 'muted')
-          reqLine.style.marginTop = '6px'
           const parts = unmet.map((r) => {
             const need = Math.max(1, Math.floor(r.rank ?? 1))
             const nm = skillsById.get(r.id)?.name ?? r.id
@@ -1216,11 +1226,13 @@ export function createUIStateMachine(args: UIArgs) {
           desc.appendChild(reqLine)
         }
 
-        const rankLine = el('div', 'ng-skill-rank')
-        const pips = Array.from({ length: def.maxRank }, (_, i) => (i < rank ? '●' : '○')).join('')
-        rankLine.innerHTML = `Rank: <span class="mono">${pips}</span>`
+        mid.append(nameLine, desc)
 
-        const actions = el('div', 'ng-skill-actions')
+        const right = el('div', 'ng-skill-row-right')
+        const rankLine = el('div', 'ng-skill-row-rank')
+        const pips = Array.from({ length: def.maxRank }, (_, i) => (i < rank ? '●' : '○')).join('')
+        rankLine.innerHTML = `<span class="mono">${pips}</span>`
+
         const buy = btn(isMax ? 'Max' : rank > 0 ? 'Rank Up (1 SP)' : 'Unlock (1 SP)', 'btn btn-primary')
         buy.disabled = locked || isMax || !canSpend
         buy.onclick = () => {
@@ -1234,23 +1246,180 @@ export function createUIStateMachine(args: UIArgs) {
           void showSkillsModal()
         }
 
-        actions.appendChild(buy)
-
         if (locked) {
-          const lock = el('div', 'ng-skill-lock')
+          const lock = el('div', 'ng-skill-row-lock')
           lock.textContent = '🔒'
-          card.appendChild(lock)
+          right.append(lock)
         }
 
-        card.append(head, desc, rankLine, actions)
-        row.appendChild(card)
+        right.append(rankLine, buy)
+        row.append(left, mid, right)
+        tierList.appendChild(row)
       }
 
-      section.appendChild(row)
-      grid.appendChild(section)
+      tierBlock.appendChild(tierList)
+      listWrap.appendChild(tierBlock)
     }
 
-    b.appendChild(grid)
+    b.appendChild(listWrap)
+    modal.append(h, b)
+
+    overlay.addEventListener('pointerdown', (e) => {
+      if (e.target === overlay) overlay.remove()
+    })
+  }
+
+  async function showSkillCardsModal() {
+    if (!lastState || !game) return
+    const g = game
+    // Finalize completed Lab research (uses absolute UTC timestamps).
+    g.finalizeLabs()
+    const state = g.getSnapshot()
+    lastState = state
+
+    const modal = el('div', 'panel ng-skillcards-modal')
+    modal.style.width = 'min(920px, calc(100vw - 20px))'
+    modal.style.pointerEvents = 'auto'
+
+    const overlay = mountModal(modal)
+
+    const h = el('div', 'panel-header')
+    const title = el('div')
+    title.textContent = 'Skill Cards'
+    const close = btn('Close', 'btn')
+    close.onclick = () => {
+      overlay.remove()
+      render()
+    }
+    h.append(title, close)
+
+    const b = el('div', 'panel-body')
+    b.style.display = 'grid'
+    b.style.gridTemplateColumns = '1fr'
+    b.style.gap = '10px'
+
+    const topRow = el('div', 'ng-skills-top')
+    const bal = renderResourcesBar(state as any)
+    const hint = el('div', 'muted')
+    hint.style.fontSize = '12px'
+    hint.style.maxWidth = '520px'
+    hint.textContent = 'Equip up to 3 cards. No cost to equip/unequip.'
+    topRow.append(bal, hint)
+    b.appendChild(topRow)
+
+    const eq = (state as any).skillCardsEquipped as Record<number, string | null> | undefined
+    const equipped: Record<1 | 2 | 3, string | null> = {
+      1: (eq && typeof eq === 'object' ? eq[1] : null) ?? null,
+      2: (eq && typeof eq === 'object' ? eq[2] : null) ?? null,
+      3: (eq && typeof eq === 'object' ? eq[3] : null) ?? null,
+    }
+
+    const equippedSlotOf = (id: string): number | null => {
+      for (const s of [1, 2, 3] as const) if (equipped[s] === id) return s
+      return null
+    }
+
+    const firstEmptySlot = (): 1 | 2 | 3 | null => {
+      for (const s of [1, 2, 3] as const) if (!equipped[s]) return s
+      return null
+    }
+
+    const slotsRow = el('div')
+    slotsRow.style.display = 'grid'
+    slotsRow.style.gridTemplateColumns = 'repeat(3, 1fr)'
+    slotsRow.style.gap = '10px'
+
+    for (const s of [1, 2, 3] as const) {
+      const box = el('div', 'panel')
+      const hh = el('div', 'panel-header')
+      hh.textContent = `Slot ${s}`
+      const bb = el('div', 'panel-body')
+
+      const id = equipped[s]
+      if (!id) {
+        const t = el('div', 'muted mono')
+        t.textContent = 'Empty'
+        bb.appendChild(t)
+      } else {
+        const def = SKILL_CARDS.find((c) => c.id === id)
+        const nm = def ? `${def.icon} ${def.name}` : id
+        const title = el('div', 'mono')
+        title.style.fontWeight = '900'
+        title.textContent = nm
+        const desc = el('div', 'muted')
+        desc.style.fontSize = '12px'
+        desc.textContent = def?.description ?? ''
+        const rm = btn('Remove', 'btn btn-danger')
+        rm.style.marginTop = '8px'
+        rm.onclick = () => {
+          const ok = g.equipSkillCard(s, null)
+          if (!ok) return
+          overlay.remove()
+          void showSkillCardsModal()
+        }
+        bb.append(title, desc, rm)
+      }
+
+      box.append(hh, bb)
+      slotsRow.appendChild(box)
+    }
+
+    const listTitle = el('div', 'muted')
+    listTitle.style.fontWeight = '900'
+    listTitle.textContent = 'Cards'
+
+    const list = el('div')
+    list.style.display = 'grid'
+    list.style.gridTemplateColumns = 'repeat(auto-fit, minmax(220px, 1fr))'
+    list.style.gap = '10px'
+
+    for (const c of SKILL_CARDS) {
+      const card = el('div', 'panel')
+      const ch = el('div', 'panel-header')
+      const left = el('div')
+      left.textContent = `${c.icon} ${c.name}`
+      const right = el('div', 'muted mono')
+      right.textContent = c.tone.toUpperCase()
+      ch.append(left, right)
+
+      const cb = el('div', 'panel-body')
+      const desc = el('div', 'muted')
+      desc.style.fontSize = '12px'
+      desc.textContent = c.description
+
+      const actions = el('div', 'stack')
+      actions.style.marginTop = '8px'
+
+      const slot = equippedSlotOf(c.id)
+      if (slot) {
+        const b = btn('Equipped', 'btn')
+        b.disabled = true
+        actions.appendChild(b)
+      } else {
+        const b = btn('Equip', 'btn btn-primary')
+        b.onclick = () => {
+          const s = firstEmptySlot()
+          if (!s) {
+            flashFail(b)
+            return
+          }
+          const ok = g.equipSkillCard(s, c.id)
+          if (!ok) {
+            flashFail(b)
+            return
+          }
+          overlay.remove()
+          void showSkillCardsModal()
+        }
+        actions.appendChild(b)
+      }
+
+      cb.append(desc, actions)
+      card.append(ch, cb)
+      list.appendChild(card)
+    }
+
+    b.append(slotsRow, listTitle, list)
     modal.append(h, b)
 
     overlay.addEventListener('pointerdown', (e) => {
@@ -1934,6 +2103,17 @@ export function createUIStateMachine(args: UIArgs) {
         <div>• Spend Skill Points in the <b>Skills</b> menu (Attack / Defense / Utility).</div>
         <div>• Tiers are gated per-branch: Tier 2 / 3 / 4 unlock at <b>2 / 4 / 6</b> skills in the same branch.</div>
         <div>• You can <b>Respec</b> all skills for <b>Palladium</b>; the cost increases each time.</div>
+      </div>
+
+      <div style="height:10px"></div>
+
+      <div class="muted">
+        <div style="font-weight:900; margin-bottom:6px">Skill Cards (3 Slots)</div>
+        <div>Skill Cards are a <b>loadout</b> system: equip up to <b>3</b> cards to add flashy combat effects.</div>
+        <div>• Open <b>Skill Cards</b> and press <b>Equip</b> to place a card into the first empty slot.</div>
+        <div>• There is <b>no cost</b> to equip/unequip cards. (You only need a free slot.)</div>
+        <div>• You can equip <b>each card at most once</b> at a time.</div>
+        <div class="mono" style="margin-top:6px">Tip: Combine a damage card (Laser / UZI / Lightning) with a control card (Freeze / Wall) for smoother KR.</div>
       </div>
 
       <div style="height:10px"></div>

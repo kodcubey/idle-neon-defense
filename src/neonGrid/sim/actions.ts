@@ -2,6 +2,7 @@ import type { GameConfig, GameState, TowerUpgradeKey } from '../types'
 import { clamp, aggregateModules } from './deterministic'
 import { metaUpgradeCostPoints, moduleSlotUnlockCostPoints, moduleUnlockCostPoints, moduleUpgradeCostPoints, skillsRespecCostPoints, upgradeCost, upgradeMaxLevel } from './costs'
 import { aggregateSkillPassives, canBuySkill, defaultSkillState, getSkillRank, type SkillId } from '../skills/skills'
+import { isSkillCardId } from '../skills/skillCards.ts'
 import {
   defaultLabState,
   finalizeResearchIfComplete,
@@ -432,5 +433,36 @@ export function equipModule(args: {
   state.modulesEquipped[s] = id
   // Clamp HP if needed.
   state.baseHP = clamp(state.baseHP, 0, calcBaseHPMax(state, cfg))
+  return { ok: true, state }
+}
+
+export function equipSkillCard(args: {
+  state: GameState
+  slot: 1 | 2 | 3
+  id: string | null
+}): { ok: boolean; state: GameState } {
+  const state: GameState = structuredClone(args.state)
+
+  if (!state.skillCardsEquipped || typeof state.skillCardsEquipped !== 'object') {
+    ;(state as any).skillCardsEquipped = { 1: null, 2: null, 3: null }
+  }
+
+  const slot = args.slot
+  if (slot !== 1 && slot !== 2 && slot !== 3) return { ok: false, state: args.state }
+
+  if (args.id === null) {
+    state.skillCardsEquipped[slot] = null
+    return { ok: true, state }
+  }
+
+  const id = args.id
+  if (!isSkillCardId(id)) return { ok: false, state: args.state }
+
+  // A card can only be equipped in one slot at a time.
+  for (const s of [1, 2, 3] as const) {
+    if (s !== slot && state.skillCardsEquipped[s] === id) state.skillCardsEquipped[s] = null
+  }
+
+  state.skillCardsEquipped[slot] = id
   return { ok: true, state }
 }

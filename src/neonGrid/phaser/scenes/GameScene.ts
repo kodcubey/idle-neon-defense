@@ -30,10 +30,25 @@ export class GameScene extends Phaser.Scene {
   private prevProjectilePos = new Map<number, { x: number; y: number }>()
   private prevProjectileAlive = new Map<number, boolean>()
 
-  private projectileImpactFx: Array<{ x: number; y: number; t0: number; crit: boolean; a: number; id: number; targetId: number }> = []
+  private projectileImpactFx: Array<{
+    x: number
+    y: number
+    t0: number
+    crit: boolean
+    a: number
+    id: number
+    targetId: number
+    kind?: string
+  }> = []
   private muzzleFxUntilSec = 0
   private muzzleCritUntilSec = 0
   private prevBaseHP = Number.NaN
+
+  private seenCardFxIds = new Set<number>()
+  private cardFxBursts: Array<{ fx: NonNullable<SimPublic['cardFx']>[number]; t0: number }> = []
+
+  private skillProcFx: Array<{ kind: NonNullable<SimPublic['skillsRuntime']>['lastProc']; t0: number }> = []
+  private prevLastProc: NonNullable<SimPublic['skillsRuntime']>['lastProc'] | undefined = undefined
 
   private towerPulseUntilSec = 0
   private baseImpactUntilSec = 0
@@ -269,6 +284,220 @@ export class GameScene extends Phaser.Scene {
     const towerY = pub.tower.pos.y + towerBob
     this.drawTower({ x: towerX, y: towerY, t: this.vTimeSec, reduceFx, cyan, magenta, lime, text })
 
+    const skillCardsEquipped = (pub.state as any).skillCardsEquipped as Record<number, string | null> | undefined
+    const hasCard = (id: string) => !!skillCardsEquipped && (skillCardsEquipped[1] === id || skillCardsEquipped[2] === id || skillCardsEquipped[3] === id)
+
+    // Persistent Skill Card visuals (ultra visible, but still cheap).
+    if (!reduceFx && hasCard('SC_SHIELD_DOME')) {
+      const pulse = 0.5 + 0.5 * Math.sin(this.vTimeSec * 1.35)
+      const r = pub.arena.baseHalfSize + 30 + 8 * pulse
+      this.fx.lineStyle(4, cyan, 0.14)
+      this.fx.strokeCircle(pub.arena.center.x, pub.arena.center.y, r)
+      this.fx.lineStyle(3, magenta, 0.10)
+      this.fx.strokeCircle(pub.arena.center.x, pub.arena.center.y, r * 0.86)
+      this.fx.lineStyle(2, cyan, 0.07)
+      this.fx.strokeCircle(pub.arena.center.x, pub.arena.center.y, r * 1.08)
+      this.fx.fillStyle(cyan, 0.020)
+      this.fx.fillCircle(pub.arena.center.x, pub.arena.center.y, r * 0.84)
+    }
+
+    if (!reduceFx && hasCard('SC_WALL_FIELD')) {
+      const rr = Math.max(40, Math.min(pub.tower.range * 0.65, pub.tower.range))
+      const a = 0.10 + 0.06 * (0.5 + 0.5 * Math.sin(this.vTimeSec * 0.9 + 0.7))
+      this.gfx.lineStyle(3, cyan, a)
+      this.gfx.strokeCircle(towerX, towerY, rr)
+      this.fx.lineStyle(2, magenta, 0.05 + 0.02 * (0.5 + 0.5 * Math.sin(this.vTimeSec * 1.6)))
+      this.fx.strokeCircle(towerX, towerY, rr + 10)
+    }
+
+    if (!reduceFx && hasCard('SC_SPIN_SWORD')) {
+      const r = 72
+      const phase = this.vTimeSec * 2.2
+      this.fx.lineStyle(3, lime, 0.12)
+      this.fx.strokeCircle(towerX, towerY, r)
+      this.fx.lineStyle(2, magenta, 0.06)
+      this.fx.strokeCircle(towerX, towerY, r * 0.86)
+      for (let i = 0; i < 3; i++) {
+        const a0 = phase + i * (Math.PI * 2) / 3
+        const a1 = a0 + 0.75
+        const x0 = towerX + Math.cos(a0) * r
+        const y0 = towerY + Math.sin(a0) * r
+        const x1 = towerX + Math.cos(a1) * (r + 10)
+        const y1 = towerY + Math.sin(a1) * (r + 10)
+        this.fx.lineStyle(6, lime, 0.08)
+        this.fx.lineBetween(x0, y0, x1, y1)
+        this.fx.lineStyle(2, cyan, 0.05)
+        this.fx.lineBetween(x0, y0, x1, y1)
+      }
+    }
+
+    if (!reduceFx && hasCard('SC_DRONE_GUNNER')) {
+      const a = this.vTimeSec * 2.1
+      const ox = Math.cos(a) * 44
+      const oy = Math.sin(a) * 44
+      const x = towerX + ox
+      const y = towerY + oy
+      const p = 0.5 + 0.5 * Math.sin(this.vTimeSec * 6.5)
+      this.fx.lineStyle(3, magenta, 0.14)
+      this.fx.strokeCircle(x, y, 9 + 2 * p)
+      this.fx.lineStyle(2, cyan, 0.10)
+      this.fx.strokeCircle(x, y, 16 + 3 * (1 - p))
+      this.fx.fillStyle(magenta, 0.03)
+      this.fx.fillCircle(x, y, 7)
+    }
+
+    // UZI: tower aura to clearly signal the card.
+    if (!reduceFx && hasCard('SC_UZI_SPRAY')) {
+      const p = 0.5 + 0.5 * Math.sin(this.vTimeSec * 7.0)
+      const r = 24 + 8 * (1 - p)
+      this.fx.lineStyle(3, magenta, 0.10 + 0.05 * p)
+      this.fx.strokeCircle(towerX, towerY, r)
+      this.fx.lineStyle(2, cyan, 0.06)
+      this.fx.strokeCircle(towerX, towerY, r + 10)
+    }
+
+    // Lightning: small orbiting sparks.
+    if (!reduceFx && hasCard('SC_LIGHTNING_ARC')) {
+      const r = 34
+      const phase = this.vTimeSec * 3.1
+      for (let i = 0; i < 3; i++) {
+        const a = phase + (i * Math.PI * 2) / 3
+        const x = towerX + Math.cos(a) * r
+        const y = towerY + Math.sin(a) * r
+        this.fx.fillStyle(cyan, 0.06)
+        this.fx.fillCircle(x, y, 4.2)
+        this.fx.fillStyle(magenta, 0.03)
+        this.fx.fillCircle(x, y, 7.5)
+      }
+    }
+
+    // Ricochet: chevrons.
+    if (!reduceFx && hasCard('SC_RICOCHET')) {
+      const rr = 36
+      const phase = this.vTimeSec * 2.0
+      for (let i = 0; i < 2; i++) {
+        const a = phase + i * Math.PI
+        const x0 = towerX + Math.cos(a) * rr
+        const y0 = towerY + Math.sin(a) * rr
+        const x1 = towerX + Math.cos(a + 0.35) * (rr + 10)
+        const y1 = towerY + Math.sin(a + 0.35) * (rr + 10)
+        this.fx.lineStyle(4, lime, 0.08)
+        this.fx.lineBetween(x0, y0, x1, y1)
+        this.fx.lineStyle(2, cyan, 0.04)
+        this.fx.lineBetween(x0, y0, x1, y1)
+      }
+    }
+
+    // Freeze pulse: cold ring hint.
+    if (!reduceFx && hasCard('SC_FREEZE_PULSE')) {
+      const p = 0.5 + 0.5 * Math.sin(this.vTimeSec * 1.9 + 0.8)
+      const r = pub.tower.range * 0.28 + 18 + 10 * p
+      this.fx.lineStyle(2, cyan, 0.04 + 0.03 * p)
+      this.fx.strokeCircle(towerX, towerY, r)
+    }
+
+    // Mine grid: subtle warning halo.
+    if (!reduceFx && hasCard('SC_MINE_GRID')) {
+      const p = 0.5 + 0.5 * Math.sin(this.vTimeSec * 2.2)
+      const r = 22 + 10 * p
+      this.fx.lineStyle(2, lime, 0.05 + 0.03 * p)
+      this.fx.strokeCircle(towerX, towerY, r)
+    }
+
+    // Laser Beam visual to the current lead enemy (sim handles damage ticks).
+    if (!reduceFx && hasCard('SC_LASER_BEAM') && pub.enemies.length > 0) {
+      let best: { e: typeof pub.enemies[number]; d: number } | null = null
+      for (const e of pub.enemies) {
+        if (!e.alive) continue
+        const dx = e.x - pub.tower.pos.x
+        const dy = e.y - pub.tower.pos.y
+        const d = Math.hypot(dx, dy)
+        if (d > pub.tower.range) continue
+        if (!best || d < best.d || (d === best.d && e.id < best.e.id)) best = { e, d }
+      }
+      if (best) {
+        const k = 0.5 + 0.5 * Math.sin(this.vTimeSec * 12.5)
+        this.fx.lineStyle(10, magenta, 0.035 + 0.03 * k)
+        this.fx.lineBetween(towerX, towerY, best.e.x, best.e.y)
+        this.fx.lineStyle(4, cyan, 0.06)
+        this.fx.lineBetween(towerX, towerY, best.e.x, best.e.y)
+        this.fx.lineStyle(2, lime, 0.03)
+        this.fx.lineBetween(towerX, towerY, best.e.x, best.e.y)
+        this.fx.fillStyle(magenta, 0.04)
+        this.fx.fillCircle(best.e.x, best.e.y, 14 + 10 * k)
+
+        // Impact spark petals (deterministic) around the target.
+        const petals = 6
+        const phase = best.e.id * 0.41 + this.vTimeSec * 4.2
+        for (let i = 0; i < petals; i++) {
+          const a = phase + (i * Math.PI * 2) / petals
+          const r0 = 10
+          const r1 = 18 + 10 * k
+          const x0 = best.e.x + Math.cos(a) * r0
+          const y0 = best.e.y + Math.sin(a) * r0
+          const x1 = best.e.x + Math.cos(a) * r1
+          const y1 = best.e.y + Math.sin(a) * r1
+          this.fx.lineStyle(3, magenta, 0.08)
+          this.fx.lineBetween(x0, y0, x1, y1)
+          this.fx.lineStyle(2, cyan, 0.05)
+          this.fx.lineBetween(x0, y0, x1, y1)
+        }
+      }
+    }
+
+    // Skills runtime visuals (buffs + procs).
+    const sr = pub.skillsRuntime
+    if (!reduceFx && sr) {
+      if (sr.adrenalActive) {
+        const p = 0.5 + 0.5 * Math.sin(this.vTimeSec * 3.6)
+        this.fx.lineStyle(3, lime, 0.08 + 0.04 * p)
+        this.fx.strokeCircle(towerX, towerY, 30 + 10 * (1 - p))
+      }
+      if (sr.tacticalActive) {
+        const p = 0.5 + 0.5 * Math.sin(this.vTimeSec * 2.4 + 1)
+        this.fx.lineStyle(2, cyan, 0.05 + 0.03 * p)
+        this.fx.strokeCircle(towerX, towerY, pub.tower.range + 10 + 10 * p)
+      }
+      if (sr.guardChargeReady) {
+        const p = 0.5 + 0.5 * Math.sin(this.vTimeSec * 5.2)
+        this.fx.lineStyle(2, cyan, 0.06 + 0.04 * p)
+        this.fx.strokeCircle(towerX, towerY, 20 + 6 * p)
+      }
+
+      // Aegis charges shown as small arcs around the base.
+      const charges = Math.max(0, Math.floor(sr.aegisCharge ?? 0))
+      if (charges > 0) {
+        const r = pub.arena.baseHalfSize + 14
+        for (let i = 0; i < Math.min(2, charges); i++) {
+          const a0 = this.vTimeSec * 1.1 + i * Math.PI
+          this.fx.lineStyle(4, magenta, 0.06)
+          this.fx.beginPath()
+          this.fx.arc(pub.arena.center.x, pub.arena.center.y, r, a0, a0 + 1.25)
+          this.fx.strokePath()
+        }
+      }
+
+      // Proc bursts: detect changes and animate.
+      const proc = sr.lastProc
+      if (proc && proc !== this.prevLastProc) {
+        this.skillProcFx.push({ kind: proc, t0: this.vTimeSec })
+      }
+      this.prevLastProc = proc
+    }
+
+    // Ingest sim-emitted card FX events (one-shot). We buffer them to animate.
+    if (!reduceFx && pub.cardFx && pub.cardFx.length > 0) {
+      for (const fx of pub.cardFx) {
+        if (this.seenCardFxIds.has(fx.id)) continue
+        this.seenCardFxIds.add(fx.id)
+        this.cardFxBursts.push({ fx, t0: this.vTimeSec })
+      }
+      if (this.seenCardFxIds.size > 2000) {
+        // Keep memory bounded.
+        this.seenCardFxIds = new Set<number>(Array.from(this.seenCardFxIds).slice(-700))
+      }
+    }
+
     // Tower pulse/recoil feedback on shots (purely visual).
     if (!reduceFx && this.vTimeSec < this.towerPulseUntilSec) {
       const k = clamp01((this.towerPulseUntilSec - this.vTimeSec) / 0.14)
@@ -345,7 +574,8 @@ export class GameScene extends Phaser.Scene {
         if (!reduceFx && wasAlive && !p.alive) {
           const a = prev ? Math.atan2(p.y - prev.y, p.x - prev.x) : 0
           const crit = p.damageMult > 1.000001
-          this.projectileImpactFx.push({ x: p.x, y: p.y, t0: this.vTimeSec, crit, a, id: p.id, targetId: p.targetEnemyId })
+          const kind = (p as any).kind as string | undefined
+          this.projectileImpactFx.push({ x: p.x, y: p.y, t0: this.vTimeSec, crit, a, id: p.id, targetId: p.targetEnemyId, kind })
 
           // Also drive enemy hit flash so impacts + enemy feedback match.
           // If the enemy died this frame, the death burst will dominate anyway.
@@ -365,8 +595,10 @@ export class GameScene extends Phaser.Scene {
           if (p.damageMult > 1.000001) critShotThisFrame = true
         }
 
+        const kind = (p as any).kind as string | undefined
         const isCrit = p.damageMult > 1.000001
-        const c = isCrit ? lime : cyan
+        const base = kind === 'UZI' ? magenta : kind === 'DRONE' ? lime : cyan
+        const c = isCrit ? lime : base
 
         if (!reduceFx && prev && wasAlive) {
           // Directional additive trail (thicker for crits).
@@ -374,12 +606,26 @@ export class GameScene extends Phaser.Scene {
           const dy = p.y - prev.y
           const dist = Math.hypot(dx, dy)
           const a = clamp01((dist / 18) * (isCrit ? 1.15 : 1))
-          this.fx.lineStyle(isCrit ? 4 : 3, c, (isCrit ? 0.13 : 0.11) * a)
+          const w = kind === 'UZI' ? (isCrit ? 3 : 2) : isCrit ? 4 : 3
+          const alpha = kind === 'UZI' ? 0.10 : isCrit ? 0.13 : 0.11
+          this.fx.lineStyle(w, c, alpha * a)
           this.fx.lineBetween(prev.x, prev.y, p.x, p.y)
 
+          // UZI: add twin tracer offsets for the "spray" feel.
+          if (kind === 'UZI' && dist > 0.8) {
+            const inv = dist <= 1e-6 ? 0 : 1 / dist
+            const nx = -dy * inv
+            const ny = dx * inv
+            const off = isCrit ? 2.2 : 1.8
+            this.fx.lineStyle(isCrit ? 3 : 2, magenta, 0.07 * a)
+            this.fx.lineBetween(prev.x + nx * off, prev.y + ny * off, p.x + nx * off, p.y + ny * off)
+            this.fx.lineBetween(prev.x - nx * off, prev.y - ny * off, p.x - nx * off, p.y - ny * off)
+          }
+
           // Soft glow head.
+          const head = kind === 'UZI' ? (isCrit ? 6.0 : 5.2) : isCrit ? 7.5 : 6.0
           this.fx.fillStyle(c, (isCrit ? 0.08 : 0.06) * a)
-          this.fx.fillCircle(p.x, p.y, isCrit ? 7.5 : 6.0)
+          this.fx.fillCircle(p.x, p.y, head)
         }
 
         // Bolt-style projectile body: a short streak in travel direction.
@@ -390,7 +636,8 @@ export class GameScene extends Phaser.Scene {
           const inv = dist <= 1e-6 ? 0 : 1 / dist
           const nx = dx * inv
           const ny = dy * inv
-          const len = (isCrit ? 9.5 : 7.5) + Math.min(10, dist * 0.55)
+          const len0 = kind === 'UZI' ? (isCrit ? 8.0 : 6.5) : isCrit ? 9.5 : 7.5
+          const len = len0 + Math.min(10, dist * 0.55)
           const bx0 = p.x - nx * len
           const by0 = p.y - ny * len
           const bx1 = p.x + nx * 2.2
@@ -399,7 +646,7 @@ export class GameScene extends Phaser.Scene {
           this.gfx.lineStyle(isCrit ? 3 : 2, c, 0.95)
           this.gfx.lineBetween(bx0, by0, bx1, by1)
           this.gfx.fillStyle(c, 0.9)
-          this.gfx.fillCircle(p.x, p.y, isCrit ? 2.9 : 2.4)
+          this.gfx.fillCircle(p.x, p.y, kind === 'UZI' ? (isCrit ? 2.6 : 2.2) : isCrit ? 2.9 : 2.4)
         } else {
           // Fallback first frame.
           this.gfx.fillStyle(c, 0.9)
@@ -435,7 +682,9 @@ export class GameScene extends Phaser.Scene {
         keep.push(fx)
 
         const k = clamp01(1 - age / dur)
-        const c = fx.crit ? lime : cyan
+        const kind = fx.kind
+        const baseC = kind === 'UZI' ? magenta : kind === 'DRONE' ? lime : cyan
+        const c = fx.crit ? lime : baseC
         const r = (fx.crit ? 6 : 5) + age * (fx.crit ? 90 : 70)
 
         this.fx.lineStyle(fx.crit ? 3 : 2, c, 0.16 * k)
@@ -444,6 +693,29 @@ export class GameScene extends Phaser.Scene {
         this.fx.strokeCircle(fx.x, fx.y, r * 0.62)
         this.fx.fillStyle(c, 0.03 * k)
         this.fx.fillCircle(fx.x, fx.y, r * 0.35)
+
+        // Kind-specific accent.
+        if (kind === 'UZI') {
+          // Micro "X" slashes.
+          const rr = 10 + (1 - k) * 26
+          this.fx.lineStyle(3, magenta, 0.10 * k)
+          this.fx.lineBetween(fx.x - rr, fx.y - rr, fx.x + rr, fx.y + rr)
+          this.fx.lineBetween(fx.x - rr, fx.y + rr, fx.x + rr, fx.y - rr)
+        } else if (kind === 'DRONE') {
+          // Tiny triangle pop.
+          const rr = 12 + (1 - k) * 18
+          const a0 = fx.id * 0.29
+          const x0 = fx.x + Math.cos(a0) * rr
+          const y0 = fx.y + Math.sin(a0) * rr
+          const x1 = fx.x + Math.cos(a0 + 2.09) * rr
+          const y1 = fx.y + Math.sin(a0 + 2.09) * rr
+          const x2 = fx.x + Math.cos(a0 + 4.18) * rr
+          const y2 = fx.y + Math.sin(a0 + 4.18) * rr
+          this.fx.lineStyle(3, lime, 0.10 * k)
+          this.fx.lineBetween(x0, y0, x1, y1)
+          this.fx.lineBetween(x1, y1, x2, y2)
+          this.fx.lineBetween(x2, y2, x0, y0)
+        }
 
         // Mini sparks (deterministic): 3 rays for normal, 5 for crit.
         const rays = fx.crit ? 5 : 3
@@ -467,6 +739,278 @@ export class GameScene extends Phaser.Scene {
         }
       }
       this.projectileImpactFx = keep
+    }
+
+    // Skill Card bursts (from sim events): lightning, ricochet, pulses.
+    if (!reduceFx && this.cardFxBursts.length > 0) {
+      const keep: typeof this.cardFxBursts = []
+      for (const bfx of this.cardFxBursts) {
+        const age = this.vTimeSec - bfx.t0
+        const fx = bfx.fx
+        const dur =
+          fx.kind === 'MINE_BLAST' ? 0.44 : fx.kind === 'FREEZE_PULSE' ? 0.58 : fx.kind === 'WALL_PULSE' ? 0.52 : 0.22
+        if (age < 0 || age > dur) continue
+        keep.push(bfx)
+
+        const k = clamp01(1 - age / dur)
+
+        if (fx.kind === 'LIGHTNING_ARC' || fx.kind === 'RICOCHET') {
+          const isRic = fx.kind === 'RICOCHET'
+          const c = fx.kind === 'LIGHTNING_ARC' ? cyan : lime
+          const rays = isRic ? 6 : 7
+          const dx = fx.x1 - fx.x0
+          const dy = fx.y1 - fx.y0
+          const dist = Math.hypot(dx, dy)
+          const inv = dist <= 1e-6 ? 0 : 1 / dist
+          const nx = -dy * inv
+          const ny = dx * inv
+          const phase = fx.id * 0.71
+
+          // Main glow.
+          if (isRic) {
+            // Segmented line to read as "bounce".
+            const segs = 5
+            for (let i = 0; i < segs; i++) {
+              const t0 = i / segs
+              const t1 = (i + 0.65) / segs
+              const x0 = fx.x0 + dx * t0
+              const y0 = fx.y0 + dy * t0
+              const x1 = fx.x0 + dx * Math.min(1, t1)
+              const y1 = fx.y0 + dy * Math.min(1, t1)
+              this.fx.lineStyle(8, lime, 0.050 * k)
+              this.fx.lineBetween(x0, y0, x1, y1)
+              this.fx.lineStyle(3, cyan, 0.045 * k)
+              this.fx.lineBetween(x0, y0, x1, y1)
+            }
+          } else {
+            this.fx.lineStyle(9, c, 0.055 * k)
+            this.fx.lineBetween(fx.x0, fx.y0, fx.x1, fx.y1)
+            this.fx.lineStyle(4, magenta, 0.08 * k)
+            this.fx.lineBetween(fx.x0, fx.y0, fx.x1, fx.y1)
+          }
+
+          // Jagged filament.
+          if (!isRic) {
+            this.fx.lineStyle(3, c, 0.18 * k)
+            let px = fx.x0
+            let py = fx.y0
+            for (let i = 1; i <= rays; i++) {
+              const t = i / rays
+              const wob = (Math.sin(phase + i * 2.0) + 0.5 * Math.sin(phase * 0.7 + i * 3.3)) * (8 + 10 * (1 - k))
+              const x = fx.x0 + dx * t + nx * wob
+              const y = fx.y0 + dy * t + ny * wob
+              this.fx.lineBetween(px, py, x, y)
+              px = x
+              py = y
+            }
+
+            // Extra branching filament for "bigger" lightning.
+            this.fx.lineStyle(2, cyan, 0.12 * k)
+            let bx = fx.x0
+            let by = fx.y0
+            for (let i = 1; i <= rays; i++) {
+              const t = i / rays
+              const wob = (Math.sin(phase * 1.3 + i * 2.6) - 0.6 * Math.sin(phase + i * 1.9)) * (5 + 9 * (1 - k))
+              const x = fx.x0 + dx * t + nx * wob
+              const y = fx.y0 + dy * t + ny * wob
+              this.fx.lineBetween(bx, by, x, y)
+              bx = x
+              by = y
+            }
+          }
+
+          this.fx.fillStyle(c, 0.06 * k)
+          this.fx.fillCircle(fx.x1, fx.y1, 16 + 16 * (1 - k))
+
+          if (isRic) {
+            // Endpoint star.
+            const star = 6
+            const rr0 = 10
+            const rr1 = 24 + 16 * (1 - k)
+            const ph = fx.id * 0.33
+            for (let i = 0; i < star; i++) {
+              const a = ph + (i * Math.PI * 2) / star
+              const x0 = fx.x1 + Math.cos(a) * rr0
+              const y0 = fx.y1 + Math.sin(a) * rr0
+              const x1 = fx.x1 + Math.cos(a) * rr1
+              const y1 = fx.y1 + Math.sin(a) * rr1
+              this.fx.lineStyle(3, lime, 0.08 * k)
+              this.fx.lineBetween(x0, y0, x1, y1)
+            }
+          }
+
+          // Subtle shock flash.
+          this.fx.fillStyle(c, 0.007 * k)
+          this.fx.fillRect(0, 0, w, h)
+        } else if (fx.kind === 'MINE_BLAST') {
+          const r = fx.r + (1 - k) * 140
+          this.fx.lineStyle(4, lime, 0.20 * k)
+          this.fx.strokeCircle(fx.x, fx.y, r)
+          this.fx.lineStyle(3, magenta, 0.14 * k)
+          this.fx.strokeCircle(fx.x, fx.y, r * 0.66)
+          this.fx.fillStyle(lime, 0.035 * k)
+          this.fx.fillCircle(fx.x, fx.y, r * 0.52)
+
+          // Debris rays.
+          const rays = 10
+          const phase = fx.id * 0.42
+          for (let i = 0; i < rays; i++) {
+            const a = phase + (i * Math.PI * 2) / rays
+            const rr0 = fx.r * 0.4
+            const rr1 = r * 0.95
+            const x0 = fx.x + Math.cos(a) * rr0
+            const y0 = fx.y + Math.sin(a) * rr0
+            const x1 = fx.x + Math.cos(a) * rr1
+            const y1 = fx.y + Math.sin(a) * rr1
+            this.fx.lineStyle(3, lime, 0.06 * k)
+            this.fx.lineBetween(x0, y0, x1, y1)
+          }
+
+          // Screen flash + tiny shake to sell explosion.
+          this.fx.fillStyle(lime, 0.010 * k)
+          this.fx.fillRect(0, 0, w, h)
+          if (k > 0.92) this.cameras.main.shake(60, 0.0012)
+        } else if (fx.kind === 'FREEZE_PULSE') {
+          const r = fx.r + (1 - k) * 120
+          this.fx.lineStyle(4, cyan, 0.16 * k)
+          this.fx.strokeCircle(fx.x, fx.y, r)
+          this.fx.lineStyle(3, magenta, 0.10 * k)
+          this.fx.strokeCircle(fx.x, fx.y, r * 0.7)
+          this.fx.fillStyle(cyan, 0.015 * k)
+          this.fx.fillCircle(fx.x, fx.y, r * 0.6)
+
+          // Snowflake spokes.
+          const spokes = 8
+          const phase = fx.id * 0.27
+          for (let i = 0; i < spokes; i++) {
+            const a = phase + (i * Math.PI * 2) / spokes
+            const x0 = fx.x + Math.cos(a) * (r * 0.2)
+            const y0 = fx.y + Math.sin(a) * (r * 0.2)
+            const x1 = fx.x + Math.cos(a) * (r * 0.95)
+            const y1 = fx.y + Math.sin(a) * (r * 0.95)
+            this.fx.lineStyle(3, cyan, 0.07 * k)
+            this.fx.lineBetween(x0, y0, x1, y1)
+          }
+        } else if (fx.kind === 'WALL_PULSE') {
+          const r = fx.r + (1 - k) * 80
+          this.fx.lineStyle(4, cyan, 0.14 * k)
+          this.fx.strokeCircle(fx.x, fx.y, r)
+          this.fx.lineStyle(3, magenta, 0.12 * k)
+          this.fx.strokeCircle(fx.x, fx.y, r * 0.92)
+
+          // Hex pulse overlay (reads more "tech barrier").
+          const sides = 6
+          const a0 = fx.id * 0.2 + (1 - k) * 0.6
+          let px = fx.x + Math.cos(a0) * r
+          let py = fx.y + Math.sin(a0) * r
+          this.fx.lineStyle(3, cyan, 0.08 * k)
+          for (let i = 1; i <= sides; i++) {
+            const a = a0 + (i * Math.PI * 2) / sides
+            const x = fx.x + Math.cos(a) * r
+            const y = fx.y + Math.sin(a) * r
+            this.fx.lineBetween(px, py, x, y)
+            px = x
+            py = y
+          }
+        }
+      }
+      this.cardFxBursts = keep
+    }
+
+    // Skill proc bursts.
+    if (!reduceFx && this.skillProcFx.length > 0) {
+      const keep: typeof this.skillProcFx = []
+      for (const fx of this.skillProcFx) {
+        const age = this.vTimeSec - fx.t0
+        const dur = 0.55
+        if (age < 0 || age > dur) continue
+        keep.push(fx)
+        const k = clamp01(1 - age / dur)
+
+        const baseX = pub.arena.center.x
+        const baseY = pub.arena.center.y
+        const r0 = pub.arena.baseHalfSize + 8
+        const r = r0 + (1 - k) * 150
+
+        const c =
+          fx.kind === 'GUARD_BLOCK'
+            ? cyan
+            : fx.kind === 'AEGIS_BLOCK'
+              ? magenta
+              : fx.kind === 'SECOND_BREATH'
+                ? cyan
+                : lime
+
+        // Core ring pulse (universal)
+        this.fx.lineStyle(4, c, 0.16 * k)
+        this.fx.strokeCircle(baseX, baseY, r)
+        this.fx.lineStyle(3, magenta, 0.10 * k)
+        this.fx.strokeCircle(baseX, baseY, r * 0.76)
+
+        // Distinct accent patterns.
+        if (fx.kind === 'GUARD_BLOCK') {
+          // Cross-shield slashes
+          const rr = r0 + (1 - k) * 70
+          this.fx.lineStyle(6, cyan, 0.11 * k)
+          this.fx.lineBetween(baseX - rr, baseY, baseX + rr, baseY)
+          this.fx.lineBetween(baseX, baseY - rr, baseX, baseY + rr)
+          this.fx.lineStyle(3, magenta, 0.06 * k)
+          this.fx.lineBetween(baseX - rr, baseY, baseX + rr, baseY)
+          this.fx.lineBetween(baseX, baseY - rr, baseX, baseY + rr)
+          if (k > 0.9) this.cameras.main.shake(55, 0.0009)
+        } else if (fx.kind === 'AEGIS_BLOCK') {
+          // Two arc segments around base
+          const rr = r0 + 18
+          const a0 = this.vTimeSec * 1.1
+          this.fx.lineStyle(6, magenta, 0.10 * k)
+          this.fx.beginPath()
+          this.fx.arc(baseX, baseY, rr, a0, a0 + 1.2)
+          this.fx.strokePath()
+          this.fx.beginPath()
+          this.fx.arc(baseX, baseY, rr, a0 + Math.PI, a0 + Math.PI + 1.2)
+          this.fx.strokePath()
+          this.fx.lineStyle(3, cyan, 0.05 * k)
+          this.fx.strokeCircle(baseX, baseY, rr)
+          if (k > 0.9) this.cameras.main.shake(55, 0.0007)
+        } else if (fx.kind === 'SECOND_BREATH') {
+          // Spiral spokes
+          const spokes = 10
+          const phase = this.vTimeSec * 4.2
+          for (let i = 0; i < spokes; i++) {
+            const a = phase + (i * Math.PI * 2) / spokes
+            const rr0 = r0 + 8
+            const rr1 = rr0 + (1 - k) * 80
+            const x0 = baseX + Math.cos(a) * rr0
+            const y0 = baseY + Math.sin(a) * rr0
+            const x1 = baseX + Math.cos(a + 0.35) * rr1
+            const y1 = baseY + Math.sin(a + 0.35) * rr1
+            this.fx.lineStyle(3, cyan, 0.07 * k)
+            this.fx.lineBetween(x0, y0, x1, y1)
+          }
+          this.fx.fillStyle(cyan, 0.007 * k)
+          this.fx.fillRect(0, 0, w, h)
+        } else {
+          // Healing-style burst: petals
+          const petals = fx.kind === 'RECOVERY_PULSE' ? 8 : 6
+          const phase = this.vTimeSec * 3.1
+          for (let i = 0; i < petals; i++) {
+            const a = phase + (i * Math.PI * 2) / petals
+            const rr0 = r0 + 10
+            const rr1 = rr0 + (1 - k) * (fx.kind === 'RECOVERY_PULSE' ? 110 : 80)
+            const x0 = baseX + Math.cos(a) * rr0
+            const y0 = baseY + Math.sin(a) * rr0
+            const x1 = baseX + Math.cos(a) * rr1
+            const y1 = baseY + Math.sin(a) * rr1
+            this.fx.lineStyle(4, lime, 0.08 * k)
+            this.fx.lineBetween(x0, y0, x1, y1)
+            this.fx.lineStyle(2, cyan, 0.04 * k)
+            this.fx.lineBetween(x0, y0, x1, y1)
+          }
+          this.fx.fillStyle(lime, 0.008 * k)
+          this.fx.fillRect(0, 0, w, h)
+        }
+      }
+      this.skillProcFx = keep
     }
 
     // Muzzle flash when new projectile(s) appear.
